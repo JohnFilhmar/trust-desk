@@ -1,14 +1,34 @@
+import type { ReactElement } from "react";
+import { RouterProvider, createBrowserRouter } from "react-router-dom";
+import type { ApiClient } from "@/lib/api/apiClient";
+import { RootProvider } from "@/providers/RootProvider";
+import { routes } from "@/routes";
+
+const router = createBrowserRouter(routes, {
+  future: {
+    v7_fetcherPersist: true,
+    v7_normalizeFormMethod: true,
+    v7_partialHydration: true,
+    v7_relativeSplatPath: true,
+    v7_skipActionErrorRevalidation: true,
+  },
+});
+
+/** Props of `App`. */
+export type AppProps = {
+  /** Replaces the client that calls the real API. Only tests set it. */
+  apiClient?: ApiClient;
+};
+
 /**
- * The root of the console. Phase 0 shows the shell only. Routing, the
- * providers and the pages arrive in Phase 1.
+ * The root of the console: the providers around the router.
+ *
+ * @param props - See `AppProps`.
  */
-export function App() {
+export function App({ apiClient }: AppProps): ReactElement {
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-2 px-8 py-16">
-      <h1 className="text-2xl font-semibold">Trust Desk</h1>
-      <p className="text-ink-muted">
-        Trust and Safety investigation console. Synthetic data only.
-      </p>
-    </main>
+    <RootProvider apiClient={apiClient}>
+      <RouterProvider router={router} future={{ v7_startTransition: true }} />
+    </RootProvider>
   );
 }
