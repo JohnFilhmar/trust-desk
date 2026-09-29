@@ -1,6 +1,6 @@
 # CLAUDE.md: trust-desk
 
-Trust & Safety investigation console: a self-initiated demo for my interview for **Software Developer, Trust & Safety Tooling (Full Stack)**. The full brief is in `PROMPT.md` until Phase 0 moves it to `docs/build-brief.md`. Read it at the start of every phase. Where this file and the brief disagree, the brief wins, and you tell me about the difference.
+Trust & Safety investigation console: a self-initiated demo for my interview for **Software Developer, Trust & Safety Tooling (Full Stack)**. The full brief is in `docs/build-brief.md`. Read it at the start of every phase. Where this file and the brief disagree, the brief wins, and you tell me about the difference.
 
 **Deadline:** live at `https://trust.filhmar.online` by 2026-09-30, 17:00 UTC+8.
 
@@ -20,43 +20,52 @@ Trust & Safety investigation console: a self-initiated demo for my interview for
 
 - Windows 11 with Docker Desktop, Node 22, PowerShell and Git Bash.
 - Ruby is not installed, and it stays that way. Every Ruby and Rails command runs in a container, including `rails new`.
+- Everything runs in Docker for now, Node tooling included. If something can't run in Docker, tell me before you work around it.
 - The repository path contains a space (`D:\My Folder\trust-desk`). Quote paths in every script and command.
 - Git here converts line endings. Keep LF forced in `.gitattributes`, or scripts such as `bin/rails` fail inside Linux containers.
 
 ## Working rules
 
-1. **Design gate before every phase:** write a short note (what, why, files touched, tests planned) and wait for my approval. No code before approval. Keep the note under one page, and put every question for the phase in it, so I answer once.
-2. **Tests are the gate.** Write or outline the tests before implementing where practical. A step is done only when its tests pass and you've shown me the command output. Never claim something works without running it.
-3. **Every bug gets a regression test:** failing test first, then the fix, then an entry in `docs/bug-log.md`. Never walk past a bug; fix it or report it to me.
-4. **Small, reviewable steps.** Commit per step. Lead every commit and PR description with the outcome, then flag risks.
-5. **One branch and one pull request per phase.** I merge. Put no AI attribution in commits, pull requests or file headers. The AI record lives in `docs/ai-usage.md`.
-6. **Ask only when different readings would lead to materially different work.** Otherwise choose the sensible option and note it in the design note.
-7. **Ask before adding any dependency** not listed under Stack. Pin exact versions.
-8. **Keep the AI record:** after each phase, append what you generated to `docs/ai-usage.md`, leaving a placeholder for what I changed or rejected. `docs/prompt-log.md` is mine; don't edit it.
-9. Write docs in plain English with no em dashes.
-10. **Watch the clock.** Follow the time budget in the brief. If a checkpoint slips by more than an hour, stop and tell me what you would cut.
-11. **Never invent a job description line.** Quote `docs/job-description.md` exactly. If the file is missing or empty, stop and ask me for it.
-12. **Keep this file current:** add verified commands and newly discovered gotchas as you go. Never remove or change a locked decision without my approval.
+On 2026-09-29 I changed how this build runs. I can't approve each phase before the deadline, so you work on your own toward the goal and I review on the pull requests.
+
+1. **Design notes, no waiting.** At the start of every phase, write a short note (what, why, files touched, tests planned) in `docs/design-notes/` and in the pull request, then carry on. Keep it under one page.
+2. **Stop only at a gate.** There are two. One is the same error five times. The other is a step that needs a command only I can run. At a gate, say exactly what you need, stop, and wait for me.
+3. **Don't guess.** Verify it, or raise it.
+4. **Tests are the gate.** Write or outline the tests before implementing where practical. A step is done only when its tests pass and you've shown me the command output. Never claim something works without running it.
+5. **Every bug gets a regression test:** failing test first, then the fix, then an entry in `docs/bug-log.md`. Never walk past a bug; fix it or report it to me.
+6. **Small, reviewable steps.** Commit per step. Lead every commit and PR description with the outcome, then flag risks.
+7. **One branch and one pull request per phase.** I merge, nobody else. Branch each phase from the one before it, so work continues while a pull request waits for me. Put no AI attribution in commits, pull requests or file headers. The AI record lives in `docs/ai-usage.md`.
+8. **Two readings, same work:** pick one and note it in the design note. **Two readings, different work:** raise it.
+9. **Adding a dependency** not listed under Stack needs my yes, so it is a gate. Pin exact versions.
+10. **Keep the AI record:** after each phase, append what you generated to `docs/ai-usage.md`, leaving a placeholder for what I changed or rejected. `docs/prompt-log.md` is mine; don't edit it.
+11. Write docs in plain English with no em dashes.
+12. **Follow my global CLAUDE.md.** Load the skill it names before you write each kind of code. Where it disagrees with this file, this file wins.
+13. **Watch the clock.** Follow the time budget in the brief. If a checkpoint slips by more than an hour, write what you would cut in the pull request and cut it.
+14. **Never invent a job description line.** Quote `docs/job-description.md` exactly. If the file is missing or empty, that is a gate.
+15. **Keep this file current:** add verified commands and newly discovered gotchas as you go. Never remove or change a locked decision without my approval.
 
 ## Phases
 
 | Phase | What it delivers |
 |---|---|
-| 0 | Scaffold, CI, server preflight, ADRs |
-| 1 | Walking skeleton through every tier, deployed live |
-| 2 | Complete core, redeployed. The minimum I want to present |
+| 0 | Scaffold, CI, ADRs |
+| 1 | Walking skeleton through every tier, running in Docker |
+| 2 | Complete core. The minimum I want to present |
+| Deploy gate | The goal ends here. I run the runbook, starting with the server preflight |
 | 3 | Risk trend chart |
 | 4 | Bulk actions and CSV export |
 | 5 | LLM case summary with an approval gate |
 | 6 | Log-platform fallback on Loki |
 
-The deploy comes in Phase 1 on purpose. Phase 2 has a fixed build order in the brief, and the app must work and be deployed after every step.
+The goal is Phases 0 to 2, working end to end in Docker with every test passing. The deploy comes after the core. I decided that on 2026-09-29. Phase 2 has a fixed build order in the brief, and the app must work and pass its tests after every step.
 
 ## Decisions
 
 - For real trade-offs, run the installed skill: "run the council on: <decision, options, constraints>" using `/llm-council`.
 - Record every decision as an ADR in `docs/decisions/NNN-title.md`: context, options, the council's verdict (agreement and disagreement), my final decision, consequences.
-- At most 5 council runs for the whole project. The council advises; I decide at the design gate.
+- At most 5 council runs for the whole project, each with 4 subagents: three advisors and a chair.
+- The council advises. While I'm away, follow its verdict and mark the ADR as provisional. I confirm or overturn it on the pull request.
+- Rails tests use Minitest. The job description names no Rails test framework. Write that ADR without a council run.
 - Run the councils during Phase 0 while the scaffold builds. Every ADR names a default, so a slow or failed run never blocks a phase. The brief lists the candidates and my defaults.
 - Bulk action semantics are already decided: per-account results. Don't council that.
 
@@ -82,16 +91,17 @@ The deploy comes in Phase 1 on purpose. Phase 2 has a fixed build order in the b
 - **Errors:** one envelope, defined once in `packages/shared`: `{ "error": { "code", "message", "correlation_id" } }`.
 - **Synthetic data only:** emails on `example.com` or `example.org`; IPs only from RFC 5737 ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24). The seed is deterministic, and its dates are relative to the day it runs.
 - **LLM output** (Phase 5) is only ever a suggestion behind a human approval gate, and never triggers enforcement. PII is redacted before any call leaves the server. The feature has a spending cap and an off switch.
+- **No `.env` file from the agent.** Development values go straight into the Compose file for the development environment. I create the real env file myself before production.
+- **Generated Rails credentials files:** keep `config/master.key` and `config/credentials.yml.enc`, both unused. Delete neither. `master.key` stays out of git.
 
 ## Proposals, not locked yet
 
-I confirm or change these at the gate named.
+Build each one as written. I confirm or change it when I review the pull request named.
 
-- **Operational mode effects** (Phase 2 gate): `elevated` lowers the score at which search flags an account; `lockdown` refuses unsuspend. Each mode must change one behavior a test can observe.
-- **Search by PII fields** (Phase 2 gate): only `analyst` and `enforcer` may search by email, IP or fingerprint. `viewer` searches by status and risk band.
-- **Reason on PII reveal** (Phase 2 gate): whether a reveal needs one.
+- **Operational mode effects** (Phase 2): `elevated` lowers the score at which search flags an account; `lockdown` refuses unsuspend. Each mode must change one behavior a test can observe.
+- **Search by PII fields** (Phase 2): only `analyst` and `enforcer` may search by email, IP or fingerprint. `viewer` searches by status and risk band.
+- **Reason on PII reveal** (Phase 2): open. Raise it in the design note with your recommendation and build the recommendation.
 - **Who writes the PII-reveal audit row** (council): the handlers with a narrow INSERT grant, or Rails through a signed call.
-- **Generated Rails credentials files** (Phase 0 gate): propose how to handle `config/master.key` and `config/credentials.yml.enc`. Don't delete either without my approval.
 
 ## Stack
 
@@ -112,7 +122,7 @@ I confirm or change these at the gate named.
 - Masking happens on the server, in one module with unit tests. Event `payload` JSON, the timeline and the CSV export all pass through it.
 - The browser keeps revealed values in memory only, never in local storage.
 - Behind nginx, read the client IP from the forwarded header that host nginx sets, and trust that header from nginx only.
-- Secrets live only in a gitignored `.env`; keep `.env.example` complete. Never read, copy or overwrite my real `.env` files.
+- Development values in the Compose file are made up and protect nothing, and the file says so. Keep `.env.example` complete, since I build the real env file from it. Never read, copy or overwrite my real `.env` files.
 - nginx sets a Content-Security-Policy, `X-Content-Type-Options`, `Referrer-Policy` and a ban on framing.
 - CSV exports escape cells starting with `=`, `+`, `-` or `@`.
 - The demo is public and its credentials are published. Plan for strangers.
@@ -169,7 +179,8 @@ Verified commands only. Fill this in during Phase 0 after actually running each 
 
 ## Docs map
 
-- `docs/build-brief.md`: the full build brief and phase plan (`PROMPT.md` until Phase 0 moves it)
+- `docs/build-brief.md`: the full build brief and phase plan
+- `docs/design-notes/`: one short note per phase, written before the work starts
 - `docs/job-description.md`: the job description, pasted by me word for word (mine only)
 - `docs/decisions/`: ADRs
 - `docs/rails-learning-guide.md`: my Ruby and Rails textbook for this codebase

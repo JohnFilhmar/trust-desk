@@ -22,43 +22,53 @@ The purpose of this demo is to show that I researched what this team needs and c
 
 **My machine:** Windows 11 with Docker Desktop, Node 22, PowerShell and Git Bash. Ruby is not installed, and I want to keep it that way. Every Ruby and Rails command runs in a container, including `rails new`. The repository path contains a space (`D:\My Folder\trust-desk`), so quote paths in every script and command.
 
+**Everything runs in Docker for now,** Node tooling included. If something can't run in Docker, tell me before you work around it.
+
 My reference project: https://github.com/JohnFilhmar/real-time-equity-trade-blotter. Use it only as inspiration for how I structure a repository, README, decision records, test tiers, hardened Docker Compose and same-origin routing. **Ignore its CLAUDE.md completely and do not copy its code.** This project has its own CLAUDE.md, already in the repository root.
 
 ## 1. How we work (non-negotiable)
 
-1. Read this whole brief and CLAUDE.md, then reply with a plan for Phase 0 and Phase 1, the decisions you want to take to the council, anything ambiguous, and every place where this brief contradicts itself or CLAUDE.md. **Write no code until I approve.**
-2. **Design gates:** at the start of every phase, write a short design note (what, why, files touched, tests you'll write) and wait for my approval. Keep the note under one page. Put every question for the phase in that one note, so I answer once.
-3. **Tests are the gate.** Write or outline the tests before the implementation where practical. A phase is not done until its tests pass and you've shown me the command output. Never claim something works without running it.
-4. **Every bug gets a regression test.** If you find a bug along the way, write a failing test first, fix it, and log it in `docs/bug-log.md`. Never walk past a bug.
-5. **I must be able to explain every line.** Keep changes small and reviewable, commit per step with clear messages, and lead every commit or PR description with the outcome, flagging anything risky or non-obvious.
-6. **One branch and one pull request per phase.** I merge. Put no AI attribution in commits, pull requests or file headers. The AI record lives in `docs/ai-usage.md`.
-7. **Keep the AI record as you go.** After each phase, append to `docs/ai-usage.md` what you generated, with a placeholder for what I changed or rejected. I keep `docs/prompt-log.md` myself.
-8. **Dependencies:** the ones listed in section 3 are approved. Ask before adding any other. Pin exact versions.
-9. Ask only when different readings would lead to materially different work. Otherwise pick the sensible option and note it.
-10. Write docs in plain English, with no em dashes.
-11. **Watch the clock.** Follow the time budget below. If a checkpoint slips by more than an hour, stop and tell me what you would cut. Don't work past it quietly.
+On 2026-09-29 I changed how this build runs. I can't approve each phase before the deadline, so you work on your own toward the goal in section 7 and I review on the pull requests. Rules 1 to 4 below replace the approval gates this brief used to have.
+
+1. Read this whole brief, CLAUDE.md and `docs/job-description.md` before you start. List in the first design note every place where this brief contradicts itself or CLAUDE.md.
+2. **Design notes, no waiting.** At the start of every phase, write a short design note (what, why, files touched, tests you'll write) in `docs/design-notes/` and in the pull request, then carry on. Keep the note under one page.
+3. **Stop only at a gate.** There are two. One is the same error five times. The other is a step that needs a command only I can run. At a gate, say exactly what you need, stop, and wait for me.
+4. **Don't guess.** Verify it, or raise it.
+5. **Tests are the gate.** Write or outline the tests before the implementation where practical. A phase is not done until its tests pass and you've shown me the command output. Never claim something works without running it.
+6. **Every bug gets a regression test.** If you find a bug along the way, write a failing test first, fix it, and log it in `docs/bug-log.md`. Never walk past a bug.
+7. **I must be able to explain every line.** Keep changes small and reviewable, commit per step with clear messages, and lead every commit or PR description with the outcome, flagging anything risky or non-obvious.
+8. **One branch and one pull request per phase.** I merge, nobody else. Branch each phase from the one before it, so work continues while a pull request waits for me. Put no AI attribution in commits, pull requests or file headers. The AI record lives in `docs/ai-usage.md`.
+9. **Keep the AI record as you go.** After each phase, append to `docs/ai-usage.md` what you generated, with a placeholder for what I changed or rejected. I keep `docs/prompt-log.md` myself.
+10. **Dependencies:** the ones listed in section 3 are approved. Adding any other needs my yes, so it is a gate. Pin exact versions.
+11. Where two readings of this brief would lead to the same work, pick one and note it. Where they would lead to different work, raise it.
+12. Write docs in plain English, with no em dashes.
+13. **Follow my global CLAUDE.md.** Load the skill it names before you write each kind of code. Where it disagrees with this repository's CLAUDE.md, the repository wins.
+14. **Watch the clock.** Follow the time budget below. If a checkpoint slips by more than an hour, write what you would cut in the pull request and cut it. Don't work past it quietly.
 
 ### Time budget
 
-This is my first proposal. I'll correct the times at the first gate to match the hours I can work.
+I confirmed the deadline. The checkpoints before it are targets, not promises. They leave five hours for the deploy, since it depends on me and on a server nobody has measured.
 
 | Checkpoint | Time (UTC+8) |
 |---|---|
-| Phase 0 approved and merged | 2026-09-29, 23:59 |
-| Phase 1 skeleton live at the URL | 2026-09-30, 10:00 |
-| Feature freeze for Phase 2 | 2026-09-30, 14:30 |
+| Phase 0 done: scaffold runs in Docker, CI green | 2026-09-30, 01:00 |
+| Phase 1 done: skeleton works end to end in Docker | 2026-09-30, 05:00 |
+| Phase 2 done: core complete, every test passing | 2026-09-30, 11:00 |
+| Deploy gate handed to me, with the runbook | 2026-09-30, 11:00 |
 | README, demo script and smoke test against the live URL finished | 2026-09-30, 16:30 |
 | Deadline | 2026-09-30, 17:00 |
 
 ## 2. Decisions: use the LLM council
 
-For decisions with real trade-offs, run the installed skill `/llm-council` (for example: "run the council on: <decision, options, constraints>"). Then record an ADR in `docs/decisions/NNN-title.md` with: context, options, the council's verdict (where the advisors agreed and disagreed), my final decision, and consequences. The council advises; I decide at the design gate.
+For decisions with real trade-offs, run the installed skill `/llm-council` (for example: "run the council on: <decision, options, constraints>"). Then record an ADR in `docs/decisions/NNN-title.md` with: context, options, the council's verdict (where the advisors agreed and disagreed), my final decision, and consequences.
+
+Run each council with 4 subagents: three advisors and a chair. The council advises. While I'm away, follow its verdict and mark the ADR as provisional. I confirm or overturn it when I review the pull request.
 
 Use it for at most 5 decisions. Good candidates, each with the default I lean toward:
 
 - TypeScript data access: raw SQL with `mysql2` vs a typed query builder such as Kysely. Default: raw `mysql2` with prepared statements and rows parsed by zod.
 - Rails serializers: a gem vs plain Ruby serializer objects. Default: plain Ruby objects, since they hide nothing from a learner.
-- Rails tests: Minitest (the default) vs RSpec. Default: Minitest, unless the job description names RSpec.
+- Rails tests: Minitest (the default) vs RSpec. Decided: Minitest. The job description names Jest and no Rails test framework. Write the ADR without a council run.
 - Nonce store for replay protection: a MySQL table vs Redis. Default: a MySQL table, since Redis adds a container to a server that's already shared.
 - Who writes the audit row for a PII reveal: the handlers with a narrow INSERT grant, or Rails through a signed call so the audit table has one writer.
 
@@ -118,7 +128,7 @@ Table names follow Rails pluralization. Fighting that convention costs more than
 - The status change, the enforcement action and the audit row are written in one database transaction. Either all three exist or none does.
 - Two enforcers acting on one account at the same moment must not both succeed. Use a row lock or optimistic locking, and explain the choice in the learning guide.
 
-**Operational mode effects.** A mode that changes nothing is only a label, so each mode changes one behavior that a test can observe. My proposal, to confirm at the Phase 2 gate:
+**Operational mode effects.** A mode that changes nothing is only a label, so each mode changes one behavior that a test can observe. Build my proposal below. I confirm or change it when I review the Phase 2 pull request:
 
 - `normal`: standard behavior.
 - `elevated`: the score at which search flags an account for review drops, and the console shows a banner.
@@ -144,7 +154,7 @@ The team calls these out explicitly, so treat them as requirements:
 - **Users and groups:** seeded demo users in three groups. `viewer` sees masked PII and is read-only. `analyst` can reveal PII per account, and every reveal is audited. `enforcer` has analyst access plus enforcement, bulk actions and mode changes. Enforce this server-side in every handler and every Rails action; the UI only mirrors it.
 - **Masking:** the handlers mask on the server, so unmasked values never reach a browser that may not see them. Write the rule for each field (email, IP, fingerprint, user agent) in one module with unit tests. Event `payload` JSON can carry IPs and emails too, so the timeline and the CSV export pass through the same module.
 - **Search must not leak what masking hides.** If a `viewer` can search by email fragment or IP, the result count confirms a guess even when the field is masked. By default only `analyst` and `enforcer` may search by email, IP or fingerprint, and `viewer` searches by status and risk band.
-- **PII reveal:** a POST that returns the unmasked fields for one account and writes an audit row with the actor, the account, the fields and the correlation ID. The browser keeps revealed values in memory only, never in local storage. Propose at the gate whether a reveal needs a reason.
+- **PII reveal:** a POST that returns the unmasked fields for one account and writes an audit row with the actor, the account, the fields and the correlation ID. The browser keeps revealed values in memory only, never in local storage. Whether a reveal needs a reason is open. Raise it in the Phase 2 design note with your recommendation, build the recommendation, and I confirm or change it on the pull request.
 - **Sessions:** a signed httpOnly, Secure, SameSite=Strict session cookie issued by the handlers layer; rate-limited login; an origin check on every state-changing request. State the session lifetime, and say how logout works if the cookie is stateless.
 - **Login throttling counts by client IP, never by account.** Locking an account after failed logins would let a stranger lock my demo users out before a recruiter arrives. Behind nginx, read the client IP from the forwarded header that host nginx sets, and trust that header from nginx only.
 - **Least privilege:** a separate database user per service, plus an admin user for migrations, grants and resets that no running service uses. The handlers get SELECT on the tables they read, plus INSERT only where a phase requires it (such as PII-reveal audits). All enforcement writes stay in Rails. Rails and MySQL are never exposed, and containers run read-only with capabilities dropped wherever possible.
@@ -159,7 +169,7 @@ The team calls these out explicitly, so treat them as requirements:
   - Nonces older than the time window are deleted.
   - One file of test vectors in `packages/shared/fixtures` holds known inputs and their expected signatures. The Jest tests and the Rails tests both read it.
 - **Idempotency:** enforcement endpoints accept an `Idempotency-Key` header. The browser creates the key when the dialog opens. The same key with the same body returns the stored response. The same key with a different body returns 422. A unique index settles two requests that arrive together.
-- **Secrets:** only in a gitignored `.env`, with a `.env.example` documenting every variable. Run gitleaks in CI. Never read, copy or overwrite my real `.env` files.
+- **Secrets:** you create no `.env` file. Development values go straight into the Compose file for the development environment. They are made-up values that protect nothing, and the file says so. I create the real env file myself before production, from `.env.example`, which documents every variable. Run gitleaks in CI. Never read, copy or overwrite my real `.env` files.
 - **Correlation IDs** flow from the browser through the handlers to Rails, and appear in every log line. The handlers accept an incoming ID only if it is a valid UUID and otherwise create a new one, so nobody can write arbitrary text into the logs.
 - **Browser security headers** set at nginx: a Content-Security-Policy, `X-Content-Type-Options`, `Referrer-Policy` and a ban on framing.
 - **The demo is public and the credentials are published,** so plan for strangers. Section 8 covers the reset. Phase 5 covers the spending cap on the LLM.
@@ -195,29 +205,29 @@ If the clock forces a choice, the guide may trail the code by one phase. It must
 
 ## 7. Build phases
 
-Every phase follows the same loop: design gate, tests, implementation, run everything, update docs, my review. Don't start the next phase until I approve.
+Every phase follows the same loop: design note, tests, implementation, run everything, update docs, open the pull request. Then start the next phase on a branch made from this one.
 
-The deploy comes early on purpose. It goes onto a shared server and depends on DNS, a certificate and memory I haven't measured, so it is the step most likely to eat the deadline. It happens while the app is small and there is still time to fix what breaks.
+**The goal** is the core: Phases 0 to 2, working end to end in Docker on my machine, with every test passing and the docs in section 10 written. When you reach it, stop at the deploy gate.
 
-**Phase 0: scaffold and preflight (keep it short).**
+**The deploy comes after the core.** I decided this on 2026-09-29. It goes onto a shared server and depends on DNS, a certificate and memory nobody has measured, so it is the step most likely to eat the deadline. That is why the time budget keeps five hours for it, and why the runbook must be ready before I start.
+
+**Phase 0: scaffold (keep it short).**
 
 - Move this brief to `docs/build-brief.md`, where CLAUDE.md expects it. CLAUDE.md already exists. Reconcile it with this brief, add the approved dependencies to its Stack section, and fill in Commands as you verify each one. Where the two files disagree, this brief wins and you list the difference in the design note.
 - Repository layout, `.gitattributes`, `.gitignore`, `.env.example`, Docker Compose for local development with health checks, the docs skeleton, and CI: typecheck, lint, Jest, Rails tests against a MySQL service, RuboCop, Brakeman, bundler-audit, `pnpm audit` and gitleaks.
-- Generate the Rails app in a throwaway Ruby container, in API mode for MySQL, without a git repository of its own, skipping the parts this app doesn't use. Pin the Ruby and Rails versions. Propose how to handle the generated `config/master.key` and `config/credentials.yml.enc`, and don't delete either without my approval.
-- Server preflight: give me a short list of read-only commands to run on the instance, covering memory, swap, disk, CPU count, running containers, listening ports, and the nginx and certbot versions. From my output, write the memory budget and tell me plainly whether the instance can hold this app next to fusion.
-- I add the DNS record during this phase, since it takes time to spread.
+- Generate the Rails app in a throwaway Ruby container, in API mode for MySQL, without a git repository of its own, skipping the parts this app doesn't use. Pin the Ruby and Rails versions. Keep the generated `config/master.key` and `config/credentials.yml.enc`, both unused. Delete neither. `master.key` stays out of git. If keeping them stops the app from booting, that is a gate.
 - Run the council decisions and write the ADRs.
 
-**Phase 1: walking skeleton, live.** One thin path through every tier, deployed.
+**Phase 1: walking skeleton.** One thin path through every tier, running in Docker.
 
 - Migrations for every table in section 4, the trigger, the database users with their grants, and the full seed.
 - Handlers: login, account search by status only, account detail.
 - Rails: suspend with a required reason, through the signed call, writing the enforcement action and the audit row.
 - UI: a login page that lists the demo accounts with a one-click sign-in for each group, a plain search list, an account page with the suspend dialog (Radix), and the audit trail view.
 - Tests: signing tests on both sides using the shared vectors; Rails request tests for suspend covering success, a bad signature, a replayed request, a stale timestamp, a missing reason and the wrong group; a test proving that UPDATE and DELETE on the audit table fail; one handler test against real MySQL; and one Playwright smoke test that signs in, suspends an account and sees the audit row.
-- Deploy following section 8. The smoke test passes against the live URL and fusion still answers. Then stop and tell me it's live.
+- Done when one command brings the stack up from nothing and the smoke test passes against it.
 
-**Phase 2: complete the core and redeploy.** This is the minimum I want to present. Build in the order below, which puts first what a recruiter notices first. If time runs out, stop after any step. The app must work and be deployed at every stop.
+**Phase 2: complete the core.** This is the minimum I want to present. Build in the order below, which puts first what a recruiter notices first. If time runs out, stop after any step. The app must work in Docker and pass its tests at every stop.
 
 1. Risk score with its contributing signals on the account page.
 2. Search by fingerprint and IP, which shows the abuse clusters, then by email fragment, all with keyset pagination.
@@ -231,7 +241,9 @@ Across those steps:
 
 - UI: every view handles loading, empty, error and forbidden states. Every control works from the keyboard with visible focus, and every input has a label.
 - Tests: Jest unit tests (risk rules, masking, signing); handler tests with mocked database and auth, plus tests against real MySQL for every query that uses JSON paths, generated columns, keyset pagination or the fallback aggregation; React component tests with Testing Library, with a jest-axe check on the search page, the account page and the enforcement dialog; and Rails request tests for every action covering a bad signature, a replayed request, a missing reason, the wrong group, an invalid state change and a repeated idempotency key. Use Jest, not Vitest, since the team uses Jest.
-- Docs: the README, the learning guide, the demo script and the interview notes cover everything built so far.
+- Docs: the README, the learning guide, the demo script, the interview notes and the deploy runbook cover everything built so far.
+
+**Deploy gate.** The goal ends here. Hand me `docs/deploy-runbook.md` and stop. Its first step is the server preflight: read-only commands covering memory, swap, disk, CPU count, running containers, listening ports, and the nginx and certbot versions. I run them, give you the instance details and add the DNS record. From my output, write the memory budget and tell me plainly whether the instance can hold this app next to fusion. Then we deploy following section 8.
 
 Then the extras, in this order, each only once the previous one is done, tested and deployed:
 
@@ -253,7 +265,7 @@ If time runs out, stop cleanly. Anything unfinished goes in the README under "No
 - This is the same EC2 instance that already serves `https://fusion.filhmar.online`. **Do not break it.**
 - The new subdomain is `trust.filhmar.online`. I'll add the DNS A record. Add a separate nginx server block and issue one certificate for this hostname with certbot.
 - In Compose, publish only what host nginx needs, bound to `127.0.0.1`. Services that serve HTTP must listen on `0.0.0.0` inside their containers. Rails and MySQL are never published. Set a memory limit on every service.
-- Before deploying, tell me the total memory budget and whether my instance size is enough. The Phase 0 preflight gives you the numbers.
+- Before deploying, tell me the total memory budget and whether my instance size is enough. The preflight at the deploy gate gives you the numbers.
 - **You have no SSH access to the instance.** Write `docs/deploy-runbook.md` with numbered commands and the output I should expect from each. I run them and paste back what I get. If I give you access later, the same runbook applies, and you still show me each command before you run it.
 - **Build images away from the instance,** in CI or on my machine, and pull them on the instance. Installing gems and building the web app there could exhaust its memory and take fusion down with it.
 - **Stay out of fusion's way.** Use a Compose project name, network names and volume names that belong to this app only. Check that the ports you publish are free. Never edit fusion's nginx server block. Never run `docker system prune` or any command that touches containers, images, volumes or networks outside this project.
@@ -262,7 +274,7 @@ If time runs out, stop cleanly. Anything unfinished goes in the README under "No
 - **Rotate container logs** with a size limit, so a busy day can't fill the disk.
 - **After every deploy,** run the smoke test against the live URL and check that fusion still answers.
 - **Rollback:** write the rollback steps in the runbook before the first deploy. Keep the previous image tags on the instance.
-- **Secrets on the instance** are generated there and live in its `.env`. They never pass through chat, the repository or CI logs.
+- **Secrets on the instance** are generated there, by me, and live in the env file I create. They never pass through chat, the repository or CI logs.
 - **Demo reset:** one command restores the seeded state, and a daily schedule on the host runs it. The audit table rejects DELETE, so the reset runs as the admin database user and empties that table by truncating it. Say so in the README, since an append-only log with a reset needs explaining.
 - Ask search engines not to index the demo.
 
@@ -306,6 +318,6 @@ I'd rather you read these now than find them at 3 AM. Check each one when you re
 - **README:** what this is, stating plainly that it's a self-initiated demo built for this application; a table mapping each job description line to the feature and file that shows it; architecture; decisions (linking the ADRs); running locally in one command; running the tests; security notes; demo accounts; the daily reset; "Not built, on purpose"; and an AI usage summary. State plainly that the data is synthetic and that I learned Rails during this build.
 - **`docs/demo-script.md`:** a 2-minute walkthrough for a recruiter (the live URL, one investigation, one enforcement, the audit trail) and a 10-minute technical version. Both name real seeded accounts. The Playwright smoke test follows the 2-minute script, so a passing test means the demo works.
 - **A recording of the 2-minute walkthrough,** linked from the README, in case the live site is down when someone looks.
-- **Also in `docs/`:** `job-description.md` (mine), `build-brief.md`, `decisions/`, `deploy-runbook.md`, `ai-usage.md`, `prompt-log.md` (mine), `bug-log.md`, `rails-learning-guide.md`, `rails-exercises.md` and `rails-interview-notes.md`.
+- **Also in `docs/`:** `job-description.md` (mine), `build-brief.md`, `design-notes/`, `decisions/`, `deploy-runbook.md`, `ai-usage.md`, `prompt-log.md` (mine), `bug-log.md`, `rails-learning-guide.md`, `rails-exercises.md` and `rails-interview-notes.md`.
 
-Start by replying with everything rule 1 in section 1 asks for.
+Start with Phase 0.
