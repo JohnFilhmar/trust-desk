@@ -1,0 +1,44 @@
+# What: the database settings for every Rails environment.
+# Convention: Rails reads config/database.yml at boot and picks the block
+#   named after RAILS_ENV.
+# Closest equivalent: the TypeORM or Prisma datasource config in NestJS,
+#   DATABASES in Django settings.
+#
+# This file is YAML run through ERB first. Anything between the ERB tags
+# (a less-than sign and a percent sign, then a percent sign and a
+# greater-than sign) is Ruby that runs before the YAML is parsed. ERB does
+# not know what a YAML comment is, so a tag written inside a comment runs
+# too. That is why this comment describes the tags without writing them.
+#
+# ENV.fetch("X") raises when X is missing, which is what we want: a missing
+# setting should stop the boot, not fall back.
+#
+# Two database users connect through this one file:
+#   - the admin user runs migrations, grants, seeds and the test suite
+#   - the runtime user serves requests and can only touch what it was granted
+# Which one connects is decided by the DB_USERNAME the container is given.
+
+default: &default
+  adapter: mysql2
+  encoding: utf8mb4
+  collation: utf8mb4_0900_ai_ci
+  host: <%= ENV.fetch("DB_HOST") %>
+  port: <%= ENV.fetch("DB_PORT", 3306) %>
+  username: <%= ENV.fetch("DB_USERNAME") %>
+  password: <%= ENV.fetch("DB_PASSWORD") %>
+  max_connections: <%= ENV.fetch("RAILS_MAX_THREADS", 3) %>
+  # Sends and reads every time value as UTC, whatever the server's zone is.
+  variables:
+    time_zone: "+00:00"
+
+development:
+  <<: *default
+  database: <%= ENV.fetch("DB_NAME") %>
+
+test:
+  <<: *default
+  database: <%= ENV.fetch("DB_TEST_NAME", "trust_desk_test") %>
+
+production:
+  <<: *default
+  database: <%= ENV.fetch("DB_NAME") %>
