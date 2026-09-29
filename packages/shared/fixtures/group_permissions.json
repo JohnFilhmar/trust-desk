@@ -1,0 +1,13 @@
+{
+  "viewer": ["accounts.read", "audit.read"],
+  "analyst": ["accounts.read", "audit.read", "accounts.search_pii", "pii.reveal"],
+  "enforcer": [
+    "accounts.read",
+    "audit.read",
+    "accounts.search_pii",
+    "pii.reveal",
+    "accounts.enforce",
+    "accounts.bulk_enforce",
+    "mode.change"
+  ]
+}

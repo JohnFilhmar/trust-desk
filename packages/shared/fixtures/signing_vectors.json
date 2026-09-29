@@ -1,0 +1,61 @@
+{
+  "description": "Known inputs and their expected signatures. Written by scripts/generate_signing_vectors.mjs. Do not edit by hand.",
+  "scheme": {
+    "canonical": "method, path with query string, timestamp, nonce and sha256 of the body, joined by a newline",
+    "algorithm": "HMAC-SHA256, lowercase hex",
+    "headers": [
+      "X-Signature",
+      "X-Signature-Timestamp",
+      "X-Signature-Nonce"
+    ],
+    "timestamp": "Unix seconds",
+    "window_seconds": 60
+  },
+  "secret": "dev-only-vector-not-a-secret-0123456789abcdef",
+  "vectors": [
+    {
+      "name": "POST with a JSON body",
+      "method": "POST",
+      "path": "/internal/accounts/42/suspend",
+      "timestamp": "1790726400",
+      "nonce": "5f0c1b9e-2a3d-4c6f-8e7a-9b0c1d2e3f40",
+      "body": "{\"actor_staff_user_id\":3,\"reason\":\"Twelve accounts share this fingerprint.\"}",
+      "body_sha256": "254e1a79004ce1ff7eb020cb44ddca2e8a5d705854688219dcbc36a75c9b5831",
+      "canonical": "POST\n/internal/accounts/42/suspend\n1790726400\n5f0c1b9e-2a3d-4c6f-8e7a-9b0c1d2e3f40\n254e1a79004ce1ff7eb020cb44ddca2e8a5d705854688219dcbc36a75c9b5831",
+      "signature": "87f59f4794fc285b849bb621d1a5e687ce10dc80d12ad4ae7f025f55438c3868"
+    },
+    {
+      "name": "POST with an empty body",
+      "method": "POST",
+      "path": "/internal/ping",
+      "timestamp": "1790726401",
+      "nonce": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "POST\n/internal/ping\n1790726401\n0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "1f3dcab225f138a457923c87907293c3386017a0062572ebbc5facb51f41b56b"
+    },
+    {
+      "name": "GET with a query string, which is part of the path",
+      "method": "GET",
+      "path": "/internal/accounts?status=suspended&limit=10",
+      "timestamp": "1790726402",
+      "nonce": "9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a",
+      "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "canonical": "GET\n/internal/accounts?status=suspended&limit=10\n1790726402\n9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "a92a460d25609dfc1d82099c85c429e09d96886fa1cea47f38c0bb017687748a"
+    },
+    {
+      "name": "POST with characters outside ASCII, hashed as UTF-8 bytes",
+      "method": "POST",
+      "path": "/internal/accounts/7/suspend",
+      "timestamp": "1790726403",
+      "nonce": "11111111-2222-4333-8444-555555555555",
+      "body": "{\"actor_staff_user_id\":3,\"reason\":\"Phishing page for Banco Núñez, reported 14×.\"}",
+      "body_sha256": "f9a6dd13588a8d8dcb39a8803da6b1db939561a069c4b6d6f0e6510c931b1c46",
+      "canonical": "POST\n/internal/accounts/7/suspend\n1790726403\n11111111-2222-4333-8444-555555555555\nf9a6dd13588a8d8dcb39a8803da6b1db939561a069c4b6d6f0e6510c931b1c46",
+      "signature": "b163243ca261d6d15fd3f960307d6f6c16a5b6c9be6dfe45abb71e39b8d573e9"
+    }
+  ]
+}
