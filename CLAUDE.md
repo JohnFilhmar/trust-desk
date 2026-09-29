@@ -105,12 +105,16 @@ Build each one as written. I confirm or change it when I review the pull request
 
 ## Stack
 
-- **Web (`apps/web`):** React 18 (not 19), Vite, TypeScript strict, TanStack Query, React Router 6, Tailwind CSS, Radix UI primitives, Recharts (Phase 3). Desktop only, 1280 px and wider.
-- **Handlers (`apps/handlers`):** Node 22, TypeScript strict, zod, `mysql2`, `bcryptjs`, `pino`. Kysely only if its ADR picks it.
-- **Core API (`apps/core-api`):** current stable Ruby and Rails (pin the versions), API-only, `mysql2` adapter, `puma`, `bcrypt`, `debug`.
+Versions were read from the registries on 2026-09-30. Exact pins live in the `package.json` files and in `Gemfile.lock`.
+
+- **Web (`apps/web`):** React 18.3.1 (not 19), Vite 8.3.1, TypeScript 6.0.3 strict, TanStack Query 5.104.0, React Router 6.30.6, Tailwind CSS 4.3.3, Radix UI primitives, Recharts (Phase 3). Desktop only, 1280 px and wider.
+- **Handlers (`apps/handlers`):** Node 22.23.3, TypeScript 6.0.3 strict, zod 4.6.5, `mysql2` 3.24.4, `bcryptjs` 3.0.3, `pino` 10.3.1. No Kysely, per ADR 001. Node runs the TypeScript source directly, so there is no build step.
+- **Core API (`apps/core-api`):** Ruby 4.0.7, Rails 8.1.4, API-only, `mysql2` adapter, `puma`, `bcrypt`, `debug`.
+- **Database:** MySQL 8.4.11.
 - **Shared (`packages/shared`):** zod schemas; TypeScript types derived from them; shared fixtures.
-- **Tests:** Jest, Testing Library and jest-axe for all TypeScript (not Vitest; the team uses Jest); Playwright for the end-to-end smoke test; Rails tests per ADR.
-- **Tooling:** pnpm workspaces, Docker Compose, GitHub Actions, gitleaks, RuboCop with the Rails defaults, Brakeman, bundler-audit, `pnpm audit`.
+- **Tests:** Jest 30.5.2, Testing Library and jest-axe for all TypeScript (not Vitest; the team uses Jest); Playwright 1.63.0 for the end-to-end smoke test; Minitest for Rails, per ADR 003.
+- **Tooling:** pnpm 12.8.1 workspaces, Docker Compose, GitHub Actions, gitleaks, RuboCop with the Rails defaults (`rubocop-rails-omakase`), Brakeman, bundler-audit, `pnpm audit`.
+- **Implied by the above, and listed in the Phase 0 design note for my review:** `typescript`, `eslint`, `typescript-eslint`, `eslint-plugin-jsdoc`, `@swc/core`, `@swc/jest`, `jest-environment-jsdom`, the Testing Library packages, the `@types/*` packages, `@vitejs/plugin-react`, `@tailwindcss/vite`.
 
 ## Security and PII
 
@@ -158,24 +162,56 @@ Build each one as written. I confirm or change it when I review the pull request
 - Issue one certificate covering every name nginx serves for this app. Separate certificates per name caused a hostname mismatch warning last time.
 - If WebSockets are ever added, nginx needs `proxy_http_version 1.1` plus the `Upgrade` and `Connection` headers, or live updates fail silently.
 
+## Known gotchas (confirmed on this project)
+
+Each one was hit for real on 2026-09-30. The error text is what the tool printed.
+
+- **ERB runs inside YAML comments.** A comment in `config/database.yml` that showed the ERB tags literally stopped Rails from booting: `SyntaxError: --> /app/config/database.yml`. Describe the tags in words. See bug 001.
+- **A grant on a missing table fails.** `Table 'trust_desk_development.schema_migrations' doesn't exist`. Rails creates that table only when the first migration runs. `db:grants` always runs after `db:prepare`.
+- **A user with no grants cannot select the database at all,** so its health check fails. Every runtime user needs at least one table grant.
+- **Debian's MySQL client is MariaDB's.** It refused the MySQL image's certificate: `mysqldump: Got error: 2026: "TLS/SSL error: self-signed certificate in certificate chain"`. The Rails image carries a client config that turns verification off. Rails calls this client to write and to load `db/structure.sql`.
+- **MySQL ignores a config file anyone can write to,** and a file mounted from Windows arrives that way. The MySQL settings are copied into an image, not mounted.
+- **pnpm 12 blocks a package published less than a day ago.** Pinning "latest" pulled in three such packages, and pnpm wrote exemptions for them into `pnpm-workspace.yaml` by itself. Never commit a `minimumReleaseAgeExclude` entry. Pin an older version.
+- **pnpm 12 fails the install when a dependency has an install script that was neither allowed nor denied:** `ERR_PNPM_IGNORED_BUILDS`. The decision for each one is in `allowBuilds` in `pnpm-workspace.yaml`. All three are denied, and the tests pass without them.
+- **`typescript-eslint` 8.71.0 accepts TypeScript below 6.1.0 only.** TypeScript stays on 6.0.3 until that range moves.
+- **`jest-axe` ships no type declarations.** `apps/web/src/types/jest-axe.d.ts` declares the part the tests use.
+- **Node 22 runs TypeScript source directly.** The handlers have no build step. That works only with syntax Node can erase, so `erasableSyntaxOnly` is on: no enums, no parameter properties, no namespaces.
+- **My Claude Code settings deny writes to any path starting with `.env`,** `.env.example` included. The variable list lives in `docs/env-reference.md`.
+- **On PowerShell, a native command that writes to stderr looks like a failure** even when it exits 0. Docker writes its progress to stderr. Read the exit code, not the red text.
+
 ## Traps not yet verified
 
 The brief lists more traps in section 9, covering Windows, Rails, MySQL, tests and nginx. Nobody has confirmed them on this project yet. Check each one when you reach it. When one is confirmed, move it into Known gotchas above with what you saw. When one turns out not to apply, say so in the design note.
 
 ## Commands
 
-Verified commands only. Fill this in during Phase 0 after actually running each one. Write every Rails command as the full Docker command I would type on my machine.
+Verified commands only. Each one below was run on 2026-09-30 and worked. Run them from the repository root. `dc` stands for `docker compose -f docker-compose.dev.yml`, written out in full when you type it.
 
-- Install: TBD
-- Run locally: TBD
-- TypeScript tests: TBD
-- Rails tests: TBD
-- End-to-end smoke test: TBD
-- Rails console: TBD
-- Migrate: TBD
-- Seed data: TBD
-- Reset demo data: TBD
-- Deploy: TBD
+| Job | Command |
+|---|---|
+| Run everything | `dc up --build` |
+| Stop everything | `dc down` |
+| Install Node packages | runs by itself on `up`, as the `install` service |
+| Add or change a Node package | `dc run --rm install pnpm install --no-frozen-lockfile --store-dir /repo/.pnpm-store` |
+| Typecheck | `dc run --rm install pnpm run typecheck` |
+| Lint | `dc run --rm install pnpm run lint` |
+| TypeScript tests | `dc run --rm install pnpm run test` |
+| Rails tests | `dc run --rm -e RAILS_ENV=test migrate sh -c "bin/rails db:test:prepare && bin/rails test"` |
+| End-to-end smoke test | `dc --profile e2e run --rm e2e` |
+| Migrate and apply grants | `dc run --rm migrate bin/rails db:prepare db:grants` |
+| Migration status | `dc run --rm migrate bin/rails db:migrate:status` |
+| Rails routes | `dc exec core-api bin/rails routes` |
+| Rails console | `dc exec core-api bin/rails console` |
+| RuboCop | `dc run --rm migrate bin/rubocop` |
+| Brakeman | `dc run --rm migrate bin/brakeman --no-pager` |
+| MySQL shell as the handlers user | `dc exec mysql mysql -utd_handlers -p trust_desk_development` |
+| Seed data | TBD, Phase 1 |
+| Reset demo data | TBD, Phase 2 |
+| Deploy | TBD, see `docs/deploy-runbook.md` |
+
+Anything that migrates or tests runs in the `migrate` service, because it connects as the admin user. The `core-api` service connects as the runtime user, which cannot create a table.
+
+The app is at `http://localhost:5173` once `up` has finished.
 
 ## Docs map
 
