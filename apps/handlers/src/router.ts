@@ -1,20 +1,9 @@
-import { health } from "#app/handlers/health.ts";
 import type { Deps } from "#app/interfaces/deps.ts";
+import { authorize, origin_allowed } from "#app/lib/auth/authorize.ts";
 import { resolve_correlation_id } from "#app/lib/http/correlation_id.ts";
 import { error_response } from "#app/lib/http/json_response.ts";
-import type { Handler } from "#app/types/handler.ts";
-
-export type Route = {
-  method: string;
-  /** A path whose segments are literal or, with a leading colon, captured. */
-  pattern: string;
-  handler: Handler;
-};
-
-/** Every endpoint this service answers. One line per handler file. */
-export const routes: readonly Route[] = [
-  { method: "GET", pattern: "/api/health", handler: health },
-];
+import { routes } from "#app/routes.ts";
+import type { Route } from "#app/types/handler.ts";
 
 /**
  * Compares a path with a route pattern, segment by segment.
@@ -45,25 +34,40 @@ export function match_pattern(
   return params;
 }
 
+const messages = {
+  unauthenticated: "Sign in to continue.",
+  forbidden: "Your group is not allowed to do this.",
+} as const;
+
 /**
- * Finds the handler for a request and runs it. This is the single place
- * where an unexpected error becomes a response, so no handler can leak one.
+ * Runs the checks every request passes through, in a fixed order: origin,
+ * route, session, permission, handler. It is also the single place where an
+ * unexpected error becomes a response, so no handler can leak one.
  *
  * @param req - The incoming request.
  * @param deps - Shared dependencies.
  * @param table - The routes to search. Defaults to every route of the service.
- * @returns The handler's response, 404 when nothing matches, or 500 with a
- *   generic message. The detail of a 500 goes to the log, never to the caller.
+ * @returns The handler's response, or 403 for a foreign origin, 404 when
+ *   nothing matches, 401 or 403 from the access check, or 500 with a generic
+ *   message. The detail of a 500 goes to the log, never to the caller.
  */
 export async function dispatch(
   req: Request,
   deps: Deps,
   table: readonly Route[] = routes,
 ): Promise<Response> {
-  const correlation_id = resolve_correlation_id(
-    req.headers.get("x-correlation-id"),
-  );
+  const correlation_id = resolve_correlation_id(req.headers.get("x-correlation-id"));
   const { pathname } = new URL(req.url);
+
+  if (!origin_allowed(req, deps.config.allowed_origins)) {
+    deps.logger.warn({ correlation_id }, "Request refused: origin not allowed.");
+    return error_response(
+      403,
+      "origin_not_allowed",
+      "This request did not come from the console.",
+      correlation_id,
+    );
+  }
 
   for (const route of table) {
     if (route.method !== req.method) continue;
@@ -71,7 +75,20 @@ export async function dispatch(
     if (params === null) continue;
 
     try {
-      return await route.handler(req, deps, { correlation_id, params });
+      const decision = await authorize(req, deps, route.access);
+      if (!decision.allowed) {
+        return error_response(
+          decision.status,
+          decision.code,
+          messages[decision.code],
+          correlation_id,
+        );
+      }
+      return await route.handler(req, deps, {
+        correlation_id,
+        params,
+        user: decision.user,
+      });
     } catch (error) {
       deps.logger.error(
         { correlation_id, route: route.pattern, err: error },

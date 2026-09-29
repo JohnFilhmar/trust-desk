@@ -38,9 +38,10 @@ DB_HANDLERS_PASSWORD=
 NODE_ENV=production
 HANDLERS_PORT=8787
 LOG_LEVEL=info
-# The one origin the browser uses. State-changing requests from any other
-# origin are refused.
-APP_ORIGIN=https://trust.filhmar.online
+# The origin the browser uses. State-changing requests from any other
+# origin are refused. Several origins are separated by commas. Production
+# has one. The session cookie carries Secure only when every origin is https.
+APP_ORIGINS=https://trust.filhmar.online
 CORE_API_URL=http://core-api:3000
 # Signs the session cookie. At least 32 characters.
 SESSION_SECRET=
@@ -71,7 +72,7 @@ SECRET_KEY_BASE=
 | `DB_HANDLERS_PASSWORD` | yes | | | yes |
 | `SERVICE_HMAC_SECRET` | | | yes | yes |
 | `SESSION_SECRET` | | | | yes |
-| `APP_ORIGIN`, `CORE_API_URL`, `HANDLERS_PORT`, `LOG_LEVEL` | | | | yes |
+| `APP_ORIGINS`, `CORE_API_URL`, `HANDLERS_PORT`, `LOG_LEVEL` | | | | yes |
 | `SECRET_KEY_BASE`, `RAILS_*` | | yes | yes | |
 
 Rails reads its database user from `DB_USERNAME` and `DB_PASSWORD`. Compose sets those two from the admin pair for the migrate container and from the core-api pair for the Rails container, so the same image connects as a different user depending on its job.

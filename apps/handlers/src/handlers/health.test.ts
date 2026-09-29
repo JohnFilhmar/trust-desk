@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@jest/globals";
 import { health_response_schema } from "@trust-desk/shared";
 import { health } from "#app/handlers/health.ts";
-import { fake_context, fake_deps } from "#app/test_utils/fake_deps.ts";
+import { fake_context, fake_deps, test_correlation_id } from "#app/test_utils/fake_deps.ts";
 
 const request = new Request("http://localhost/api/health");
 
@@ -24,9 +24,7 @@ describe("GET /api/health", () => {
 
   it("echoes the correlation id and forbids caching", async () => {
     const res = await health(request, fake_deps(), fake_context());
-    expect(res.headers.get("x-correlation-id")).toBe(
-      fake_context().correlation_id,
-    );
+    expect(res.headers.get("x-correlation-id")).toBe(test_correlation_id);
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 });

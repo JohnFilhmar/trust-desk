@@ -1,26 +1,58 @@
 import { createServer } from "node:http";
 import { pino } from "pino";
 import { load_env } from "#app/config/env.ts";
-import type { Deps } from "#app/interfaces/deps.ts";
+import type { Clock, Deps } from "#app/interfaces/deps.ts";
+import { create_auth } from "#app/lib/auth/password.ts";
+import { create_core_api } from "#app/lib/core_api/client.ts";
 import { create_pool } from "#app/lib/db/pool.ts";
+import { resolve_correlation_id } from "#app/lib/http/correlation_id.ts";
 import { error_response } from "#app/lib/http/json_response.ts";
 import {
   BodyTooLargeError,
   send_web_response,
   to_web_request,
 } from "#app/lib/http/node_adapter.ts";
-import { resolve_correlation_id } from "#app/lib/http/correlation_id.ts";
 import { create_database } from "#app/repositories/database.ts";
 import { dispatch } from "#app/router.ts";
 
 const env = load_env(process.env);
-const logger = pino({ level: env.LOG_LEVEL, base: { service: "handlers" } });
+const logger = pino({
+  level: env.LOG_LEVEL,
+  base: { service: "handlers" },
+  // A second guard. No code should log these, and if some code does, the
+  // value is replaced before the line is written.
+  redact: {
+    paths: [
+      "password",
+      "password_digest",
+      "cookie",
+      "signature",
+      "*.password",
+      "*.password_digest",
+      "req.headers.cookie",
+      'req.headers["x-signature"]',
+    ],
+    censor: "[redacted]",
+  },
+});
 const pool = create_pool(env);
+const clock: Clock = { now: () => new Date() };
 
 const deps: Deps = {
   db: create_database(pool),
-  clock: { now: () => new Date() },
+  auth: await create_auth(),
+  core_api: create_core_api({
+    base_url: env.CORE_API_URL,
+    secret: env.SERVICE_HMAC_SECRET,
+    clock,
+  }),
+  clock,
   logger,
+  config: {
+    session_secret: env.SESSION_SECRET,
+    allowed_origins: env.APP_ORIGINS,
+    secure_cookies: env.APP_ORIGINS.every((origin) => origin.startsWith("https://")),
+  },
 };
 
 const server = createServer((req, res) => {

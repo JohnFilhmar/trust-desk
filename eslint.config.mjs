@@ -47,7 +47,10 @@ export default tseslint.config(
       ],
       "jsdoc/require-param-description": "error",
       "jsdoc/require-returns-description": "error",
-      "jsdoc/check-param-names": "error",
+      // A component documents its props on the props type. Asking for a
+      // @param per destructured prop as well would say everything twice.
+      "jsdoc/check-param-names": ["error", { checkDestructured: false }],
+      "jsdoc/require-param": "off",
       "jsdoc/check-tag-names": "error",
       "jsdoc/no-types": "error",
     },
@@ -55,6 +58,12 @@ export default tseslint.config(
   {
     files: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/test_utils/**", "**/testUtils/**"],
     rules: { "jsdoc/require-jsdoc": "off" },
+  },
+  {
+    files: ["**/scripts/**/*.mjs"],
+    languageOptions: {
+      globals: { URL: "readonly", console: "readonly", process: "readonly" },
+    },
   },
   {
     files: ["**/*.cjs"],

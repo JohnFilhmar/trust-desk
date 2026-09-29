@@ -4,7 +4,7 @@ import { load_env } from "#app/config/env.ts";
 const valid = {
   NODE_ENV: "test",
   HANDLERS_PORT: "8787",
-  APP_ORIGIN: "http://localhost:5173",
+  APP_ORIGINS: "http://localhost:5173, http://web:5173",
   DB_HOST: "mysql",
   DB_NAME: "trust_desk_test",
   DB_HANDLERS_USERNAME: "td_handlers",
@@ -22,6 +22,17 @@ describe("load_env", () => {
     expect(env.LOG_LEVEL).toBe("info");
   });
 
+  it("splits the origins and trims each one", () => {
+    expect(load_env(valid).APP_ORIGINS).toEqual([
+      "http://localhost:5173",
+      "http://web:5173",
+    ]);
+  });
+
+  it("refuses an origin that is not a URL", () => {
+    expect(() => load_env({ ...valid, APP_ORIGINS: "localhost" })).toThrow(/APP_ORIGINS/);
+  });
+
   it("names the missing variable and never prints a value", () => {
     const { SERVICE_HMAC_SECRET: _removed, ...missing } = valid;
     expect(() => load_env(missing)).toThrow(/SERVICE_HMAC_SECRET/);
@@ -32,5 +43,11 @@ describe("load_env", () => {
     expect(() => load_env({ ...valid, SERVICE_HMAC_SECRET: "short" })).toThrow(
       /SERVICE_HMAC_SECRET/,
     );
+  });
+
+  it("refuses one secret used for both jobs", () => {
+    expect(() =>
+      load_env({ ...valid, SESSION_SECRET: valid.SERVICE_HMAC_SECRET }),
+    ).toThrow(/must differ/);
   });
 });

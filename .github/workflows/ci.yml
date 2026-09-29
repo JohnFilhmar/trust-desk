@@ -55,10 +55,12 @@ jobs:
       DB_PORT: 3306
       DB_NAME: trust_desk_test
       DB_TEST_NAME: trust_desk_test
-      DB_USERNAME: root
+      DB_USERNAME: td_admin
       DB_PASSWORD: ci-only-not-a-secret
       DB_CORE_API_USERNAME: td_core_api
       DB_HANDLERS_USERNAME: td_handlers
+      SERVICE_HMAC_SECRET: ci-only-not-a-secret-0123456789abcdef
+      SHARED_FIXTURES_DIR: ${{ github.workspace }}/packages/shared/fixtures
     services:
       mysql:
         image: mysql:8.4
@@ -76,6 +78,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: MySQL client, for db/structure.sql
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends default-mysql-client default-libmysqlclient-dev
+      - name: Database users
+        # db/structure.sql names td_admin as the definer of the audit
+        # triggers, so that user must exist before the schema is loaded.
+        working-directory: .
+        run: |
+          mysql --protocol=tcp -h 127.0.0.1 -uroot -pci-only-not-a-secret --ssl-verify-server-cert=off -e "
+            CREATE USER IF NOT EXISTS 'td_admin'@'%' IDENTIFIED BY 'ci-only-not-a-secret';
+            GRANT ALL PRIVILEGES ON *.* TO 'td_admin'@'%' WITH GRANT OPTION;
+            CREATE USER IF NOT EXISTS 'td_core_api'@'%' IDENTIFIED BY 'ci-only-not-a-secret';
+            CREATE USER IF NOT EXISTS 'td_handlers'@'%' IDENTIFIED BY 'ci-only-not-a-secret';"
       - uses: ruby/setup-ruby@v1
         with:
           working-directory: apps/core-api

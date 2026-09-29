@@ -72,8 +72,12 @@ services:
       RAILS_ENV: development
       DB_CORE_API_USERNAME: td_core_api
       DB_HANDLERS_USERNAME: td_handlers
+      SERVICE_HMAC_SECRET: dev-only-hmac-not-a-secret-0123456789abcdef
+      SHARED_FIXTURES_DIR: /shared_fixtures
     volumes:
       - ./apps/core-api:/app
+      # The fixtures both test suites read, so the two services cannot drift.
+      - ./packages/shared/fixtures:/shared_fixtures:ro
     depends_on:
       mysql:
         condition: service_healthy
@@ -132,7 +136,8 @@ services:
       NODE_ENV: development
       HANDLERS_PORT: "8787"
       LOG_LEVEL: debug
-      APP_ORIGIN: http://localhost:5173
+      # The browser's origin, and the one the end-to-end container uses.
+      APP_ORIGINS: http://localhost:5173,http://web:5173
       DB_HANDLERS_USERNAME: td_handlers
       DB_HANDLERS_PASSWORD: dev-only-handlers-not-a-secret
       CORE_API_URL: http://core-api:3000
