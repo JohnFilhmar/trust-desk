@@ -124,6 +124,68 @@ describe("POST /api/login", () => {
   });
 });
 
+describe("the login throttle", () => {
+  function deps_with_throttle(allowed: boolean) {
+    const failures: string[] = [];
+    const deps = fake_deps(known_user);
+    deps.login_throttle = {
+      check: () => (allowed ? { allowed: true } : { allowed: false, retry_after_seconds: 42 }),
+      record_failure: (ip) => {
+        failures.push(ip);
+      },
+    };
+    return { deps, failures };
+  }
+
+  it("answers 429 with Retry-After, and checks no password", async () => {
+    const { deps } = deps_with_throttle(false);
+    let checked = false;
+    deps.auth = {
+      verify_password: async () => {
+        checked = true;
+        return true;
+      },
+    };
+    const res = await dispatch(
+      login_request({ email: "enforcer@example.com", password: "correct" }),
+      deps,
+    );
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("42");
+    expect(error_envelope_schema.parse(await res.json()).error.code).toBe("rate_limited");
+    expect(res.headers.getSetCookie()).toEqual([]);
+    expect(checked).toBe(false);
+  });
+
+  it("counts a failure against the client IP", async () => {
+    const { deps, failures } = deps_with_throttle(true);
+    await dispatch(
+      login_request({ email: "enforcer@example.com", password: "nope" }),
+      deps,
+    );
+    expect(failures).toEqual(["203.0.113.9"]);
+  });
+
+  it("counts a failure for an unknown email too", async () => {
+    const { deps, failures } = deps_with_throttle(true);
+    await dispatch(
+      login_request({ email: "nobody@example.com", password: "nope" }),
+      deps,
+    );
+    expect(failures).toHaveLength(1);
+  });
+
+  it("counts nothing for a login that succeeds", async () => {
+    const { deps, failures } = deps_with_throttle(true);
+    await dispatch(
+      login_request({ email: "enforcer@example.com", password: "correct" }),
+      deps,
+    );
+    expect(failures).toEqual([]);
+  });
+});
+
 describe("POST /api/logout", () => {
   it("answers 204 and tells the browser to drop the cookie", async () => {
     const res = await dispatch(console_request("POST", "/api/logout"), fake_deps());

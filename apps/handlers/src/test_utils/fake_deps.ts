@@ -3,13 +3,15 @@ import { permissions_for } from "@trust-desk/shared";
 import type { SessionUser, StaffGroup } from "@trust-desk/shared";
 import type { CoreApi, Database, Deps } from "#app/interfaces/deps.ts";
 import { issue_session_value, session_cookie_name } from "#app/lib/auth/session_cookie.ts";
+import { client_ip_header } from "#app/lib/http/client_ip.ts";
 import type { RequestContext } from "#app/types/handler.ts";
-import type { AccountRow, StaffUserRow } from "#app/types/rows.ts";
+import type { AccountRow, EventRow, StaffUserRow } from "#app/types/rows.ts";
 
 export const test_now = new Date("2026-09-30T00:00:00.000Z");
 export const test_session_secret = "s".repeat(32);
 export const test_origin = "http://localhost:5173";
 export const test_correlation_id = "3f2b6c1e-8d4a-4b7e-9c55-0a1b2c3d4e5f";
+export const test_client_ip = "203.0.113.9";
 
 const staff_ids: Readonly<Record<StaffGroup, number>> = {
   viewer: 1,
@@ -53,14 +55,30 @@ export function account_row(overrides: Partial<AccountRow> = {}): AccountRow {
   };
 }
 
+/** An event row whose payload holds raw PII. */
+export function event_row(overrides: Partial<EventRow> = {}): EventRow {
+  return {
+    id: 900,
+    event_type: "login",
+    occurred_at: "2026-09-29T02:00:00.000001Z",
+    occurred_at_raw: "2026-09-29 02:00:00.000001",
+    payload: { ip: "192.0.2.17", user_agent: "Mozilla/5.0 (X11; Linux x86_64)", success: true },
+    ...overrides,
+  };
+}
+
+const rails_not_set_up = async () =>
+  ({ kind: "unavailable", reason: "not set up" }) as const;
+
 /**
  * Builds the dependencies for a handler test.
  *
  * @param db - The queries this test cares about. The rest return nothing.
  * @param core_api - The Rails calls this test cares about.
  * @returns Dependencies with a fixed clock, a silent logger, a password
- *   checker that accepts only the text `correct`, and a Rails client that
- *   reports Rails as unavailable unless told otherwise.
+ *   checker that accepts only the text `correct`, a throttle that allows
+ *   everyone, and a Rails client that reports Rails as unavailable unless
+ *   told otherwise.
  */
 export function fake_deps(
   db: Partial<Database> = {},
@@ -75,6 +93,14 @@ export function fake_deps(
       find_account_by_id: async () => null,
       list_enforcement_actions: async () => [],
       list_audit_logs: async () => [],
+      list_events: async () => [],
+      find_current_mode: async () => null,
+      list_stats_days: async () => [],
+      list_event_days: async () => [],
+      count_events_for_days: async () => [],
+      count_accounts_sharing_fingerprint: async () => 0,
+      count_signups_from_same_ip: async () => 1,
+      list_quick_risk: async () => [],
       ...db,
     },
     auth: {
@@ -82,8 +108,14 @@ export function fake_deps(
         digest !== null && password === "correct",
     },
     core_api: {
-      suspend_account: async () => ({ kind: "unavailable", reason: "not set up" }),
+      enforce: rails_not_set_up,
+      record_reveal: rails_not_set_up,
+      change_mode: rails_not_set_up,
       ...core_api,
+    },
+    login_throttle: {
+      check: () => ({ allowed: true }),
+      record_failure: jest.fn(),
     },
     clock: { now: () => test_now },
     logger: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -117,14 +149,23 @@ export function fake_context(
  * @param path - The path with its query string.
  * @param options - `as` signs the request in as that group. `body` is sent
  *   as JSON. `origin` replaces the Origin header, and `null` leaves it out.
+ *   `headers` adds or replaces any other header.
  * @returns A request carrying a valid session cookie when `as` is given.
  */
 export function console_request(
   method: string,
   path: string,
-  options: { as?: StaffGroup; body?: unknown; origin?: string | null } = {},
+  options: {
+    as?: StaffGroup;
+    body?: unknown;
+    origin?: string | null;
+    headers?: Record<string, string>;
+  } = {},
 ): Request {
-  const headers = new Headers({ "x-correlation-id": test_correlation_id });
+  const headers = new Headers({
+    "x-correlation-id": test_correlation_id,
+    [client_ip_header]: test_client_ip,
+  });
   const origin = options.origin === undefined ? test_origin : options.origin;
   if (origin !== null) headers.set("origin", origin);
   if (options.as !== undefined) {
@@ -136,6 +177,9 @@ export function console_request(
     headers.set("cookie", `${session_cookie_name}=${value}`);
   }
   if (options.body !== undefined) headers.set("content-type", "application/json");
+  for (const [name, value] of Object.entries(options.headers ?? {})) {
+    headers.set(name, value);
+  }
 
   return new Request(`http://localhost${path}`, {
     method,

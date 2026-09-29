@@ -1,4 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import {
+  client_ip_header,
+  real_ip_header,
+  resolve_client_ip,
+} from "#app/lib/http/client_ip.ts";
 
 /** Larger request bodies are refused before they are read into memory. */
 const max_body_bytes = 1_048_576;
@@ -37,6 +42,13 @@ export async function to_web_request(req: IncomingMessage): Promise<Request> {
       headers.append(name, item);
     }
   }
+
+  // Set last, so it replaces a header of the same name sent by the caller.
+  // Handlers read the client IP from here and from nowhere else.
+  headers.set(
+    client_ip_header,
+    resolve_client_ip(req.socket.remoteAddress, headers.get(real_ip_header)),
+  );
 
   const method = req.method ?? "GET";
   const has_body = method !== "GET" && method !== "HEAD";

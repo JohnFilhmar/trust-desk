@@ -1,13 +1,24 @@
 import type {
   AuditLogEntry,
   EnforcementAction,
+  EnforcementActionType,
   EnforcementResult,
   InternalEnforcementRequest,
+  InternalModeChangeRequest,
+  InternalModeChangeResult,
+  InternalRevealRequest,
+  InternalRevealResult,
 } from "@trust-desk/shared";
+import type { LoginThrottle } from "#app/lib/rate_limit/login_throttle.ts";
+import type { DailyCounts, EventDay, StatsDay } from "#app/lib/risk/merge_daily_counts.ts";
 import type {
   AccountRow,
   AccountSearchArgs,
   AuditLogArgs,
+  CurrentModeRow,
+  EventListArgs,
+  EventRow,
+  QuickRiskRow,
   StaffCredentialsRow,
   StaffUserRow,
 } from "#app/types/rows.ts";
@@ -40,7 +51,7 @@ export interface Database {
   /**
    * Lists accounts, newest first.
    *
-   * @param args - The filter, the position to start after, and the page size.
+   * @param args - The filters, the position to start after, and the page size.
    * @returns At most `limit` rows, with raw PII. An empty array when none match.
    */
   search_accounts(args: AccountSearchArgs): Promise<AccountRow[]>;
@@ -68,6 +79,85 @@ export interface Database {
    * @returns At most `limit` rows.
    */
   list_audit_logs(args: AuditLogArgs): Promise<AuditLogEntry[]>;
+
+  /**
+   * Lists the events of one account, newest first.
+   *
+   * @param args - The account, an optional event type, the position to
+   *   start after, and the page size.
+   * @returns At most `limit` rows, each with its raw payload.
+   */
+  list_events(args: EventListArgs): Promise<EventRow[]>;
+
+  /**
+   * Reads the operational mode in force.
+   *
+   * @returns The newest row, or `null` when no mode was ever set.
+   */
+  find_current_mode(): Promise<CurrentModeRow | null>;
+
+  /**
+   * Reads the pre-aggregated rows of one account.
+   *
+   * @param account_id - The account id.
+   * @param since_day - The first UTC day of the window, as `YYYY-MM-DD`.
+   * @returns One row per day that has one.
+   */
+  list_stats_days(account_id: number, since_day: string): Promise<StatsDay[]>;
+
+  /**
+   * Finds the newest event of each day of one account.
+   *
+   * @param account_id - The account id.
+   * @param since_day - The first UTC day of the window, as `YYYY-MM-DD`.
+   * @returns One row per day that has events.
+   */
+  list_event_days(account_id: number, since_day: string): Promise<EventDay[]>;
+
+  /**
+   * Counts raw events for the given days. This is the fallback path.
+   *
+   * @param account_id - The account id.
+   * @param since_day - The first UTC day of the window, as `YYYY-MM-DD`.
+   * @param days - The days to count. An empty list returns an empty array.
+   * @returns One row per requested day that has events.
+   */
+  count_events_for_days(
+    account_id: number,
+    since_day: string,
+    days: readonly string[],
+  ): Promise<DailyCounts[]>;
+
+  /**
+   * Counts the other accounts that signed up with the same device fingerprint.
+   *
+   * @param account_id - The account id.
+   * @returns How many accounts share it, this one not included.
+   */
+  count_accounts_sharing_fingerprint(account_id: number): Promise<number>;
+
+  /**
+   * Counts the accounts that signed up from the same IP around the same time.
+   *
+   * @param account_id - The account id.
+   * @param window_minutes - How far before and after this signup to look.
+   * @returns How many accounts, this one included.
+   */
+  count_signups_from_same_ip(account_id: number, window_minutes: number): Promise<number>;
+
+  /**
+   * Reads what a list needs to score a page of accounts, in one query.
+   *
+   * @param account_ids - The accounts on the page.
+   * @param since_day - The first UTC day of the window, as `YYYY-MM-DD`.
+   * @param window_minutes - The signup velocity window.
+   * @returns One row per account that exists.
+   */
+  list_quick_risk(
+    account_ids: readonly number[],
+    since_day: string,
+    window_minutes: number,
+  ): Promise<QuickRiskRow[]>;
 }
 
 /** Password checking, injected so tests need no bcrypt. */
@@ -85,28 +175,57 @@ export interface Auth {
 }
 
 /** What came back from Rails, already sorted into the three cases that matter. */
-export type CoreApiResult =
-  | { kind: "ok"; result: EnforcementResult }
+export type CoreApiResult<Result> =
+  | { kind: "ok"; result: Result }
   | { kind: "rejected"; status: number; code: string }
   | { kind: "unavailable"; reason: string };
 
-/** The signed calls to Rails. */
+/**
+ * The signed calls to Rails. Every method returns `ok` with the result,
+ * `rejected` when Rails refused on the merits, or `unavailable` on a
+ * timeout, a network error or anything unexpected. None of them throws.
+ */
 export interface CoreApi {
   /**
-   * Asks Rails to suspend an account.
+   * Asks Rails to act on an account.
    *
-   * @param account_id - The account to suspend.
-   * @param body - The acting staff user and the reason. It is signed as sent.
+   * @param action - Suspend, unsuspend or mark as spam.
+   * @param account_id - The account to act on.
+   * @param body - The acting staff user, the reason and the idempotency key. It is signed as sent.
    * @param correlation_id - Passed on so both services log the same id.
-   * @returns `ok` with the result, `rejected` when Rails refused on the
-   *   merits, or `unavailable` on a timeout, a network error or anything
-   *   unexpected. Never throws.
+   * @returns What Rails recorded.
    */
-  suspend_account(
+  enforce(
+    action: EnforcementActionType,
     account_id: number,
     body: InternalEnforcementRequest,
     correlation_id: string,
-  ): Promise<CoreApiResult>;
+  ): Promise<CoreApiResult<EnforcementResult>>;
+
+  /**
+   * Asks Rails to write the audit row of a PII reveal. The caller unmasks
+   * nothing until this returns `ok`.
+   *
+   * @param body - The acting staff user, the account, the fields and the reason.
+   * @param correlation_id - Passed on so both services log the same id.
+   * @returns The id of the audit row.
+   */
+  record_reveal(
+    body: InternalRevealRequest,
+    correlation_id: string,
+  ): Promise<CoreApiResult<InternalRevealResult>>;
+
+  /**
+   * Asks Rails to change the operational mode.
+   *
+   * @param body - The acting staff user, the new mode and the reason.
+   * @param correlation_id - Passed on so both services log the same id.
+   * @returns The new row and the id of its audit row.
+   */
+  change_mode(
+    body: InternalModeChangeRequest,
+    correlation_id: string,
+  ): Promise<CoreApiResult<InternalModeChangeResult>>;
 }
 
 /** The source of the current time, injected so tests can fix it. */
@@ -148,6 +267,7 @@ export interface Deps {
   db: Database;
   auth: Auth;
   core_api: CoreApi;
+  login_throttle: LoginThrottle;
   clock: Clock;
   logger: Logger;
   config: HandlerConfig;

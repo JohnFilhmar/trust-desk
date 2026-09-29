@@ -1,10 +1,23 @@
 import { randomUUID } from "node:crypto";
-import { enforcement_result_schema, error_envelope_schema } from "@trust-desk/shared";
+import {
+  enforcement_result_schema,
+  error_envelope_schema,
+  internal_mode_change_result_schema,
+  internal_reveal_result_schema,
+} from "@trust-desk/shared";
+import type { EnforcementActionType } from "@trust-desk/shared";
+import type { z } from "zod";
 import type { Clock, CoreApi, CoreApiResult } from "#app/interfaces/deps.ts";
 import { sign_request } from "#app/lib/core_api/signing.ts";
 
 /** Rails gets this long to answer. There is no retry. */
 const timeout_ms = 3000;
+
+const enforcement_paths: Readonly<Record<EnforcementActionType, string>> = {
+  suspend: "suspend",
+  unsuspend: "unsuspend",
+  mark_spam: "mark_spam",
+};
 
 export type CoreApiSettings = {
   /** Such as `http://core-api:3000`, with no trailing slash. */
@@ -16,12 +29,13 @@ export type CoreApiSettings = {
 };
 
 /** Sends one signed POST and sorts the answer into the three cases callers handle. */
-async function signed_post(
+async function signed_post<Result>(
   settings: CoreApiSettings,
   path: string,
   payload: unknown,
   correlation_id: string,
-): Promise<CoreApiResult> {
+  result_schema: z.ZodType<Result>,
+): Promise<CoreApiResult<Result>> {
   // The body is turned into text once. The same text is hashed for the
   // signature and sent on the wire, so the two cannot differ.
   const body = JSON.stringify(payload);
@@ -61,8 +75,10 @@ async function signed_post(
     return { kind: "unavailable", reason: `status ${response.status}, body not JSON` };
   }
 
-  if (response.status === 201) {
-    const result = enforcement_result_schema.safeParse(parsed_body);
+  // 200 is what Rails answers when it replays a stored response for an
+  // idempotency key it has seen before.
+  if (response.status === 201 || response.status === 200) {
+    const result = result_schema.safeParse(parsed_body);
     return result.success
       ? { kind: "ok", result: result.data }
       : { kind: "unavailable", reason: "success body did not fit the contract" };
@@ -91,12 +107,31 @@ async function signed_post(
  */
 export function create_core_api(settings: CoreApiSettings): CoreApi {
   return {
-    suspend_account(account_id, body, correlation_id) {
+    enforce(action, account_id, body, correlation_id) {
       return signed_post(
         settings,
-        `/internal/accounts/${account_id}/suspend`,
+        `/internal/accounts/${account_id}/${enforcement_paths[action]}`,
         body,
         correlation_id,
+        enforcement_result_schema,
+      );
+    },
+    record_reveal(body, correlation_id) {
+      return signed_post(
+        settings,
+        "/internal/reveals",
+        body,
+        correlation_id,
+        internal_reveal_result_schema,
+      );
+    },
+    change_mode(body, correlation_id) {
+      return signed_post(
+        settings,
+        "/internal/operational_modes",
+        body,
+        correlation_id,
+        internal_mode_change_result_schema,
       );
     },
   };

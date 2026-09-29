@@ -1,6 +1,7 @@
 import { login_request_schema, permissions_for } from "@trust-desk/shared";
 import type { SessionResponse } from "@trust-desk/shared";
 import { build_set_cookie, issue_session_value } from "#app/lib/auth/session_cookie.ts";
+import { client_ip_header } from "#app/lib/http/client_ip.ts";
 import { error_response, json_response } from "#app/lib/http/json_response.ts";
 import { read_json_body } from "#app/lib/http/read_json_body.ts";
 import type { Handler } from "#app/types/handler.ts";
@@ -8,18 +9,38 @@ import type { Handler } from "#app/types/handler.ts";
 /**
  * `POST /api/login`. Checks an email and a password and starts a session.
  *
- * @returns 200 with the user and the session cookie, 422 for a malformed
- *   body, or 401 with one message for every other failure. The response
- *   never says whether the email or the password was wrong.
+ * Failed logins are counted per client IP, never per account. Locking an
+ * account would let a stranger lock the demo users out.
+ *
+ * @returns 200 with the user and the session cookie. 429 with `Retry-After`
+ *   when this IP has failed too often. 422 for a malformed body. 401 with
+ *   one message for every other failure: the response never says whether
+ *   the email or the password was wrong.
  */
 export const login: Handler = async (req, deps, context) => {
+  const { correlation_id } = context;
+  const client_ip = req.headers.get(client_ip_header) ?? "unknown";
+
+  const throttle = deps.login_throttle.check(client_ip);
+  if (!throttle.allowed) {
+    deps.logger.warn({ correlation_id }, "Login refused: too many failures from this IP.");
+    const response = error_response(
+      429,
+      "rate_limited",
+      "Too many failed sign-in attempts. Wait a few minutes and try again.",
+      correlation_id,
+    );
+    response.headers.set("retry-after", String(throttle.retry_after_seconds));
+    return response;
+  }
+
   const parsed = await read_json_body(req, login_request_schema);
   if (!parsed.ok) {
     return error_response(
       422,
       "invalid_request",
       "Enter an email and a password.",
-      context.correlation_id,
+      correlation_id,
     );
   }
 
@@ -32,12 +53,13 @@ export const login: Handler = async (req, deps, context) => {
   );
 
   if (row === null || !matches) {
-    deps.logger.warn({ correlation_id: context.correlation_id }, "Login refused.");
+    deps.login_throttle.record_failure(client_ip);
+    deps.logger.warn({ correlation_id }, "Login refused.");
     return error_response(
       401,
       "invalid_credentials",
       "The email or the password is wrong.",
-      context.correlation_id,
+      correlation_id,
     );
   }
 
@@ -50,7 +72,7 @@ export const login: Handler = async (req, deps, context) => {
       permissions: permissions_for(row.group_name),
     },
   };
-  const response = json_response(body, 200, context.correlation_id);
+  const response = json_response(body, 200, correlation_id);
   response.headers.append(
     "set-cookie",
     build_set_cookie(
@@ -58,9 +80,6 @@ export const login: Handler = async (req, deps, context) => {
       deps.config.secure_cookies,
     ),
   );
-  deps.logger.info(
-    { correlation_id: context.correlation_id, staff_user_id: row.id },
-    "Login accepted.",
-  );
+  deps.logger.info({ correlation_id, staff_user_id: row.id }, "Login accepted.");
   return response;
 };

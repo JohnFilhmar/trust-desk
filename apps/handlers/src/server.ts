@@ -5,6 +5,7 @@ import type { Clock, Deps } from "#app/interfaces/deps.ts";
 import { create_auth } from "#app/lib/auth/password.ts";
 import { create_core_api } from "#app/lib/core_api/client.ts";
 import { create_pool } from "#app/lib/db/pool.ts";
+import { create_login_throttle } from "#app/lib/rate_limit/login_throttle.ts";
 import { resolve_correlation_id } from "#app/lib/http/correlation_id.ts";
 import { error_response } from "#app/lib/http/json_response.ts";
 import {
@@ -44,6 +45,12 @@ const deps: Deps = {
   core_api: create_core_api({
     base_url: env.CORE_API_URL,
     secret: env.SERVICE_HMAC_SECRET,
+    clock,
+  }),
+  login_throttle: create_login_throttle({
+    max_failures: 10,
+    window_seconds: 300,
+    max_tracked_ips: 10_000,
     clock,
   }),
   clock,

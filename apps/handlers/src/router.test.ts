@@ -141,7 +141,7 @@ describe("access to every route", () => {
     async (group) => {
       let called = false;
       const deps = fake_deps(staff_lookup(), {
-        suspend_account: async () => {
+        enforce: async () => {
           called = true;
           return { kind: "unavailable", reason: "should not be reached" };
         },

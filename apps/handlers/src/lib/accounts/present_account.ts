@@ -1,4 +1,4 @@
-import type { Account, AccountSummary } from "@trust-desk/shared";
+import type { Account, AccountSummary, RiskSummary } from "@trust-desk/shared";
 import {
   mask_email,
   mask_fingerprint,
@@ -9,8 +9,9 @@ import type { AccountRow } from "#app/types/rows.ts";
 
 /**
  * Turns a stored account into what the console may see, with every PII
- * field masked. This is the only way an account leaves the service in
- * Phase 1, so nothing can leak by omission.
+ * field masked. Every read of an account goes through here. The one
+ * exception is a reveal, which builds its response only after Rails has
+ * written the audit row.
  *
  * @param row - The account as stored, with raw PII.
  * @returns The account with `pii_revealed` set to false.
@@ -38,9 +39,10 @@ export function present_masked_account(row: AccountRow): Account {
  * Turns a stored account into a search result row, with the email masked.
  *
  * @param row - The account as stored, with raw PII.
+ * @param risk - The quick score of the account.
  * @returns The fields a results table shows.
  */
-export function present_masked_summary(row: AccountRow): AccountSummary {
+export function present_masked_summary(row: AccountRow, risk: RiskSummary): AccountSummary {
   return {
     id: row.id,
     email: mask_email(row.email),
@@ -48,5 +50,6 @@ export function present_masked_summary(row: AccountRow): AccountSummary {
     plan: row.plan,
     spam_marked_at: row.spam_marked_at,
     created_at: row.created_at,
+    risk,
   };
 }
