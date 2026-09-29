@@ -8,6 +8,8 @@ export type ApiErrorDetails = {
   message: string;
   /** The id to quote when asking someone to find the request in the logs. */
   correlationId: string;
+  /** How long the server asked the caller to wait, from the `Retry-After` header. Null when it sent none. */
+  retryAfterSeconds: number | null;
 };
 
 /** Describes a request that the API refused, or that failed on the way. */
@@ -15,6 +17,7 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly correlationId: string;
+  readonly retryAfterSeconds: number | null;
 
   /**
    * Builds the error from the parts of an error envelope.
@@ -27,5 +30,6 @@ export class ApiError extends Error {
     this.status = details.status;
     this.code = details.code;
     this.correlationId = details.correlationId;
+    this.retryAfterSeconds = details.retryAfterSeconds;
   }
 }

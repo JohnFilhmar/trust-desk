@@ -13,13 +13,25 @@ import { useSession } from "@/providers/SessionProvider";
 
 const genericRefusal = "The email or password is not correct.";
 
-// The server's own wording is never shown for these, so the page cannot say
-// which of the two values was wrong.
-const messagesByStatus: Readonly<Record<number, string>> = {
-  401: genericRefusal,
-  422: genericRefusal,
-  429: "Too many sign-in attempts. Wait a minute, then try again.",
-};
+// The server's own wording is never shown for a refused sign-in, so the page
+// cannot say which of the two values was wrong.
+function describeRefusal(error: unknown): string | undefined {
+  if (!(error instanceof ApiError)) {
+    return undefined;
+  }
+  if (error.status === 401 || error.status === 422) {
+    return genericRefusal;
+  }
+  if (error.status !== 429) {
+    return undefined;
+  }
+  if (error.retryAfterSeconds === null) {
+    return "Too many sign-in attempts. Wait a minute, then try again.";
+  }
+  const wait =
+    error.retryAfterSeconds === 1 ? "1 second" : `${error.retryAfterSeconds} seconds`;
+  return `Too many sign-in attempts. Wait ${wait}, then try again.`;
+}
 
 const returnStateSchema = z.object({
   returnPath: z.string().regex(/^\/(?!\/)/),
@@ -45,7 +57,6 @@ export function LoginPage(): ReactElement {
   }
 
   const { error } = signInMutation;
-  const knownMessage = error instanceof ApiError ? messagesByStatus[error.status] : undefined;
 
   return (
     <div className="flex min-h-screen min-w-7xl flex-col">
@@ -58,7 +69,7 @@ export function LoginPage(): ReactElement {
           <p className="text-ink-muted">Trust and Safety investigation console.</p>
         </div>
         {signInMutation.isError && (
-          <ErrorState error={error} heading="Sign in failed" message={knownMessage} />
+          <ErrorState error={error} heading="Sign in failed" message={describeRefusal(error)} />
         )}
         {isLoading ? (
           <LoadingState label="Checking your session" />

@@ -1,5 +1,8 @@
-import { fetchAccount, searchAccounts, suspendAccount } from "@/lib/api/accountsApi";
+import { fetchAccount, fetchAccountRisk, searchAccounts } from "@/lib/api/accountsApi";
 import { fetchAuditLogs } from "@/lib/api/auditApi";
+import { markAccountAsSpam, suspendAccount, unsuspendAccount } from "@/lib/api/enforcementApi";
+import { fetchAccountEvents, revealAccountPii } from "@/lib/api/investigationApi";
+import { changeOperationalMode, fetchOperationalMode } from "@/lib/api/operationalModeApi";
 import { fetchSession, login, logout } from "@/lib/api/sessionApi";
 
 /**
@@ -12,8 +15,15 @@ export const apiClient = {
   fetchSession,
   searchAccounts,
   fetchAccount,
+  fetchAccountRisk,
+  fetchAccountEvents,
+  revealAccountPii,
   suspendAccount,
+  unsuspendAccount,
+  markAccountAsSpam,
   fetchAuditLogs,
+  fetchOperationalMode,
+  changeOperationalMode,
 };
 
 /** The shape of `apiClient`. A test double has the same shape. */

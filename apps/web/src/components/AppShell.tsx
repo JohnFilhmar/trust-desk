@@ -2,6 +2,9 @@ import { useMutation } from "@tanstack/react-query";
 import { NavLink } from "react-router-dom";
 import type { ReactElement, ReactNode } from "react";
 import { ErrorState } from "@/components/ErrorState";
+import { ModeBanner } from "@/components/ModeBanner";
+import { ModeChangeDialog } from "@/components/ModeChangeDialog";
+import { ModeIndicator } from "@/components/ModeIndicator";
 import { SyntheticDataBanner } from "@/components/SyntheticDataBanner";
 import { Button } from "@/components/ui/Button";
 import { staffGroupLabels } from "@/lib/format/labels";
@@ -22,7 +25,7 @@ function navLinkClasses({ isActive }: { isActive: boolean }): string {
 }
 
 /**
- * Frames every signed-in page with the banner, the top bar and the navigation.
+ * Frames every signed-in page with the banners, the top bar and the navigation.
  *
  * @param props - See `AppShellProps`.
  */
@@ -34,7 +37,8 @@ export function AppShell({ children }: AppShellProps): ReactElement {
     <div className="flex min-h-screen min-w-7xl flex-col">
       <header className="border-b border-line bg-surface">
         <SyntheticDataBanner />
-        <div className="mx-auto flex max-w-7xl items-center gap-8 px-8 py-3">
+        <ModeBanner />
+        <div className="mx-auto flex max-w-7xl items-center gap-6 px-8 py-3">
           <p className="text-lg font-semibold">Trust Desk</p>
           <nav aria-label="Main" className="flex flex-1 items-center gap-6">
             <NavLink to="/accounts" className={navLinkClasses}>
@@ -46,6 +50,8 @@ export function AppShell({ children }: AppShellProps): ReactElement {
               </NavLink>
             )}
           </nav>
+          <ModeIndicator />
+          {can("mode.change") && <ModeChangeDialog />}
           {user !== null && (
             <p className="text-sm">
               <span className="font-medium">{user.display_name}</span>

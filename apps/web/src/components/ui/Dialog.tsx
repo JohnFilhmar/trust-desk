@@ -12,6 +12,8 @@ export type DialogProps = {
   description: string;
   /** The one element that opens the dialog. It must pass a ref and its props to a button. Focus returns to it on close. */
   trigger: ReactElement;
+  /** Runs as the dialog closes, before focus returns to the trigger. Calling `preventDefault` on the event leaves focus where it is. */
+  onCloseAutoFocus?: (event: Event) => void;
   children: ReactNode;
 };
 
@@ -26,6 +28,7 @@ export function Dialog({
   title,
   description,
   trigger,
+  onCloseAutoFocus,
   children,
 }: DialogProps): ReactElement {
   return (
@@ -33,7 +36,10 @@ export function Dialog({
       <RadixDialog.Trigger asChild>{trigger}</RadixDialog.Trigger>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="fixed inset-0 bg-ink/50" />
-        <RadixDialog.Content className="fixed top-1/2 left-1/2 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-line bg-surface p-6 shadow-lg">
+        <RadixDialog.Content
+          onCloseAutoFocus={onCloseAutoFocus}
+          className="fixed top-1/2 left-1/2 flex w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-line bg-surface p-6 shadow-lg"
+        >
           <div className="flex flex-col gap-1">
             <RadixDialog.Title className="text-lg font-semibold">{title}</RadixDialog.Title>
             <RadixDialog.Description className="text-sm text-ink-muted">

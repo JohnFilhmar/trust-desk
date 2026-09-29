@@ -83,6 +83,37 @@ describe("LoginPage", () => {
     });
   });
 
+  it("says how long to wait on a 429 that carries Retry-After", async () => {
+    const user = userEvent.setup();
+    const login = jest
+      .fn<ApiClient["login"]>()
+      .mockRejectedValue(buildApiError(429, "rate_limited", "Slow down.", 120));
+    renderLoginPage(login);
+
+    await user.click(await findDemoButton("Demo Viewer"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Too many sign-in attempts. Wait 120 seconds, then try again.",
+    );
+    expect(alert.textContent).toContain(correlationId);
+  });
+
+  it("asks for a minute on a 429 without Retry-After", async () => {
+    const user = userEvent.setup();
+    const login = jest
+      .fn<ApiClient["login"]>()
+      .mockRejectedValue(buildApiError(429, "rate_limited", "Slow down."));
+    renderLoginPage(login);
+
+    await user.click(await findDemoButton("Demo Viewer"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      "Too many sign-in attempts. Wait a minute, then try again.",
+    );
+  });
+
   it("does not call the server when the form is empty", async () => {
     const user = userEvent.setup();
     const login = jest.fn<ApiClient["login"]>();

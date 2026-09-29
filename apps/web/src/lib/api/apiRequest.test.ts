@@ -4,16 +4,28 @@ import { z } from "zod";
 import { ApiError } from "@/lib/api/apiError";
 import { apiRequest } from "@/lib/api/apiRequest";
 import type { ApiResponse, FetchFunction } from "@/lib/api/apiRequest";
-import { buildSession, correlationId } from "@/testUtils/fixtures";
+import { buildSession, correlationId, uuidPattern } from "@/testUtils/fixtures";
+import { removeRandomUuid, restoreRandomUuid } from "@/testUtils/insecureContext";
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function headersHolding(values: Record<string, string>): ApiResponse["headers"] {
+  return { get: (name) => values[name] ?? null };
+}
 
-function respondWith(status: number, body: unknown): ApiResponse {
+function respondWith(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): ApiResponse {
   return {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve(body),
+    headers: headersHolding(headers),
   };
+}
+
+function envelope(code: string, message: string): unknown {
+  return { error: { code, message, correlation_id: correlationId } };
 }
 
 function fetchAnswering(response: ApiResponse): jest.Mock<FetchFunction> {
@@ -97,7 +109,12 @@ describe("apiRequest", () => {
 
   it("returns nothing for a 204 and does not read a body", async () => {
     const json = jest.fn<ApiResponse["json"]>();
-    const fetchFunction = fetchAnswering({ ok: true, status: 204, json });
+    const fetchFunction = fetchAnswering({
+      ok: true,
+      status: 204,
+      json,
+      headers: headersHolding({}),
+    });
 
     const result = await apiRequest({
       method: "POST",
@@ -112,13 +129,7 @@ describe("apiRequest", () => {
 
   it("throws an ApiError with the envelope's code on a 4xx", async () => {
     const fetchFunction = fetchAnswering(
-      respondWith(409, {
-        error: {
-          code: "already_suspended",
-          message: "The account is already suspended.",
-          correlation_id: correlationId,
-        },
-      }),
+      respondWith(409, envelope("already_suspended", "The account is already suspended.")),
     );
 
     const error = await catchError(
@@ -137,7 +148,63 @@ describe("apiRequest", () => {
       code: "already_suspended",
       message: "The account is already suspended.",
       correlationId,
+      retryAfterSeconds: null,
     });
+  });
+
+  it("carries the Retry-After header of a 429 as whole seconds", async () => {
+    const fetchFunction = fetchAnswering(
+      respondWith(429, envelope("rate_limited", "Too many attempts."), { "Retry-After": "120" }),
+    );
+
+    const error = await catchError(
+      apiRequest({
+        method: "POST",
+        path: "/api/login",
+        schema: session_response_schema,
+        body: { email: "viewer@example.com", password: "secret" },
+        fetchFunction,
+      }),
+    );
+
+    expect(error).toMatchObject({ status: 429, code: "rate_limited", retryAfterSeconds: 120 });
+  });
+
+  it("ignores a Retry-After header that is not a number of seconds", async () => {
+    const fetchFunction = fetchAnswering(
+      respondWith(429, envelope("rate_limited", "Too many attempts."), {
+        "Retry-After": "Wed, 30 Sep 2026 07:28:00 GMT",
+      }),
+    );
+
+    const error = await catchError(
+      apiRequest({
+        method: "POST",
+        path: "/api/login",
+        schema: session_response_schema,
+        body: { email: "viewer@example.com", password: "secret" },
+        fetchFunction,
+      }),
+    );
+
+    expect(error).toMatchObject({ status: 429, retryAfterSeconds: null });
+  });
+
+  it("sends extra headers, and never lets one replace the correlation id", async () => {
+    const fetchFunction = fetchAnswering(respondWith(200, buildSession("viewer")));
+
+    await apiRequest({
+      method: "POST",
+      path: "/api/accounts/42/suspend",
+      schema: session_response_schema,
+      body: { reason: "Twelve accounts share this fingerprint." },
+      headers: { "Idempotency-Key": correlationId, "X-Correlation-Id": "not-a-uuid" },
+      fetchFunction,
+    });
+
+    const [, init] = fetchFunction.mock.calls[0] ?? [];
+    expect(readHeader(init, "Idempotency-Key")).toBe(correlationId);
+    expect(readHeader(init, "X-Correlation-Id")).toMatch(uuidPattern);
   });
 
   it("throws unexpected_response when the error body is not an envelope", async () => {
@@ -161,6 +228,7 @@ describe("apiRequest", () => {
       ok: false,
       status: 500,
       json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+      headers: headersHolding({}),
     });
 
     const error = await catchError(
@@ -189,6 +257,32 @@ describe("apiRequest", () => {
 
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 200, code: "unexpected_response" });
+  });
+
+  // Bug 002. On a plain HTTP origin other than localhost the browser has no
+  // `crypto.randomUUID`, and every request failed before it was sent.
+  it("still sends a request with a valid correlation id without crypto.randomUUID", async () => {
+    const session = buildSession("viewer");
+    const fetchFunction = fetchAnswering(respondWith(200, session));
+    removeRandomUuid();
+
+    let result: unknown;
+    try {
+      result = await apiRequest({
+        method: "GET",
+        path: "/api/session",
+        schema: session_response_schema,
+        fetchFunction,
+      });
+    } finally {
+      restoreRandomUuid();
+    }
+
+    expect(result).toEqual(session);
+    expect(fetchFunction).toHaveBeenCalledTimes(1);
+    const [, init] = fetchFunction.mock.calls[0] ?? [];
+    const sentId = readHeader(init, "X-Correlation-Id");
+    expect(z.uuid().safeParse(sentId).success).toBe(true);
   });
 
   it("throws network_error with the id it sent when no response arrives", async () => {

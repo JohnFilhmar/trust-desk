@@ -1,4 +1,4 @@
-import type { AccountStatus } from "@trust-desk/shared";
+import type { AccountSearchQuery } from "@trust-desk/shared";
 import type { QueryKey } from "@tanstack/react-query";
 
 /**
@@ -15,17 +15,17 @@ export function sessionKey(): QueryKey {
  * query, to the lists, to one list or one account.
  *
  * @param scope - `list` or `detail`. When absent, the key matches every account query.
- * @param value - The status of a list, or the id of an account. When absent, a list key stands for every status.
- * @returns The key.
+ * @param value - The filters of a list, or the id of an account. When absent, the key matches every query of the scope.
+ * @returns The key. A detail key also matches the risk and the timeline of that account.
  */
 export function accountsKey(
   scope?: "list" | "detail",
-  value?: AccountStatus | number,
+  value?: Partial<AccountSearchQuery> | number,
 ): QueryKey {
   if (scope === undefined) {
     return ["accounts"];
   }
-  return ["accounts", scope, value ?? "all"];
+  return value === undefined ? ["accounts", scope] : ["accounts", scope, value];
 }
 
 /**

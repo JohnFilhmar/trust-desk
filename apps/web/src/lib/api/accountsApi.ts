@@ -2,23 +2,23 @@ import {
   account_detail_response_schema,
   account_search_query_schema,
   account_search_response_schema,
-  enforcement_result_schema,
+  risk_score_schema,
 } from "@trust-desk/shared";
 import type {
   AccountDetailResponse,
   AccountSearchQuery,
   AccountSearchResponse,
-  EnforcementRequest,
-  EnforcementResult,
+  RiskScore,
 } from "@trust-desk/shared";
 import { apiRequest } from "@/lib/api/apiRequest";
 
 /**
  * Reads one page of accounts.
  *
- * @param query - No `status` means every status. No `cursor` means the first page. No `limit` means the contract's default.
+ * @param query - No `status` means every status. No `cursor` means the first page. No `limit` means the contract's default. `email`, `ip` and `fingerprint` need the permission `accounts.search_pii`.
  * @returns The page, with `next_cursor` null on the last one.
- * @throws {ApiError} When the server refuses the request.
+ * @throws {ApiError} With `forbidden` when a PII term is sent without the permission.
+ * @throws {ZodError} When a term does not fit the contract. Callers check before they call.
  */
 export function searchAccounts(
   query: Partial<AccountSearchQuery>,
@@ -47,21 +47,16 @@ export function fetchAccount(accountId: number): Promise<AccountDetailResponse> 
 }
 
 /**
- * Suspends one account.
+ * Reads the full risk score of one account, with every signal behind it.
  *
  * @param accountId - The id of the account.
- * @param request - The reason, already trimmed and checked against the contract.
- * @returns The action the server recorded and the account's new status.
- * @throws {ApiError} With `already_suspended` on a 409, and `core_api_unavailable` on a 503.
+ * @returns The score, its signals in the server's order, and where the counts came from.
+ * @throws {ApiError} With `account_not_found` when no account has this id.
  */
-export function suspendAccount(
-  accountId: number,
-  request: EnforcementRequest,
-): Promise<EnforcementResult> {
+export function fetchAccountRisk(accountId: number): Promise<RiskScore> {
   return apiRequest({
-    method: "POST",
-    path: `/api/accounts/${accountId}/suspend`,
-    schema: enforcement_result_schema,
-    body: request,
+    method: "GET",
+    path: `/api/accounts/${accountId}/risk`,
+    schema: risk_score_schema,
   });
 }

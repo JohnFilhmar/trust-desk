@@ -1,6 +1,7 @@
 import type { AccountSummary } from "@trust-desk/shared";
 import type { ReactElement } from "react";
 import { AccountStatusBadge } from "@/components/AccountStatusBadge";
+import { RiskBadge } from "@/components/RiskBadge";
 import { Timestamp } from "@/components/Timestamp";
 import { Badge } from "@/components/ui/Badge";
 import { TextLink } from "@/components/ui/TextLink";
@@ -13,6 +14,7 @@ export type AccountsTableProps = {
 
 const headerCellClasses = "px-4 py-3 text-left text-xs font-medium text-ink-muted";
 const cellClasses = "px-4 py-3 text-sm";
+const columns = ["Email", "Status", "Risk", "Plan", "Created", "Flags"];
 
 /**
  * Lists accounts, one per row, each linking to its own page.
@@ -25,21 +27,11 @@ export function AccountsTable({ accounts }: AccountsTableProps): ReactElement {
       <caption className="sr-only">Accounts</caption>
       <thead>
         <tr className="border-b border-line">
-          <th scope="col" className={headerCellClasses}>
-            Email
-          </th>
-          <th scope="col" className={headerCellClasses}>
-            Status
-          </th>
-          <th scope="col" className={headerCellClasses}>
-            Plan
-          </th>
-          <th scope="col" className={headerCellClasses}>
-            Created
-          </th>
-          <th scope="col" className={headerCellClasses}>
-            Flags
-          </th>
+          {columns.map((column) => (
+            <th key={column} scope="col" className={headerCellClasses}>
+              {column}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -51,12 +43,21 @@ export function AccountsTable({ accounts }: AccountsTableProps): ReactElement {
             <td className={cellClasses}>
               <AccountStatusBadge status={account.status} />
             </td>
+            <td className={cellClasses}>
+              <span className="flex items-center gap-2">
+                <span className="w-8 text-right font-medium">{account.risk.score}</span>
+                <RiskBadge band={account.risk.band} />
+              </span>
+            </td>
             <td className={cellClasses}>{account.plan}</td>
             <td className={cellClasses}>
               <Timestamp value={account.created_at} />
             </td>
             <td className={cellClasses}>
-              {account.spam_marked_at !== null && <Badge tone="warning">Marked as spam</Badge>}
+              <span className="flex items-center gap-2">
+                {account.risk.flagged_for_review && <Badge tone="danger">Review</Badge>}
+                {account.spam_marked_at !== null && <Badge tone="warning">Marked as spam</Badge>}
+              </span>
             </td>
           </tr>
         ))}

@@ -6,7 +6,13 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "jest-axe";
 import type { ApiClient } from "@/lib/api/apiClient";
-import { buildAccount, buildApiError, buildSession, correlationId } from "@/testUtils/fixtures";
+import {
+  buildAccount,
+  buildApiError,
+  buildSession,
+  correlationId,
+  uuidPattern,
+} from "@/testUtils/fixtures";
 import { buildApiClient, renderRoutes } from "@/testUtils/renderWithProviders";
 
 const enforcementResult = enforcement_result_schema.parse(enforcementResultFixture);
@@ -95,7 +101,7 @@ describe("AccountPage", () => {
   it("shows no Suspend button to an enforcer on a suspended account", async () => {
     renderAccountPage("enforcer", accountWith("suspended"));
 
-    expect(await screen.findByText(/This account is suspended/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Unsuspend account" })).toBeTruthy();
     expect(querySuspendButton()).toBeNull();
   });
 
@@ -155,8 +161,13 @@ describe("AccountPage", () => {
     const confirmation = await screen.findByText(/^Account suspended\./);
     expect(confirmation.getAttribute("role")).toBe("status");
     expect(document.activeElement).toBe(confirmation);
-    expect(suspendAccount).toHaveBeenCalledWith(42, { reason: typedReason });
-    expect(await screen.findByText(/This account is suspended/)).toBeTruthy();
+    expect(confirmation.textContent).toContain("Audit row 1");
+    expect(suspendAccount).toHaveBeenCalledWith(
+      42,
+      { reason: typedReason },
+      expect.stringMatching(uuidPattern),
+    );
+    expect(await screen.findByRole("button", { name: "Unsuspend account" })).toBeTruthy();
     expect(fetchAccount).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(querySuspendButton()).toBeNull();
@@ -183,9 +194,20 @@ describe("AccountPage", () => {
     expect(screen.getByLabelText("Reason").textContent).toBe(typedReason);
   });
 
+  it("shows the risk panel and the timeline in their own sections", async () => {
+    renderAccountPage("analyst", accountWith("active"));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "Risk" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Timeline" })).toBeTruthy();
+    expect(await screen.findByRole("meter", { name: "Risk score" })).toBeTruthy();
+    expect(await screen.findByText("No events")).toBeTruthy();
+  });
+
   it("has no accessibility violations axe can detect", async () => {
     renderAccountPage("enforcer", accountWith("active"));
     await screen.findByRole("button", { name: "Suspend account" });
+    await screen.findByRole("meter", { name: "Risk score" });
+    await screen.findByText("No events");
 
     const results = await axe(document.body);
 

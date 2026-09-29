@@ -1,37 +1,37 @@
 import { describe, expect, it, jest } from "@jest/globals";
-import type { AccountSummary } from "@trust-desk/shared";
+import type { StaffGroup } from "@trust-desk/shared";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "jest-axe";
 import type { ApiClient } from "@/lib/api/apiClient";
-import { buildApiError, buildSession, correlationId } from "@/testUtils/fixtures";
+import {
+  buildAccountSummary,
+  buildApiError,
+  buildSession,
+  correlationId,
+} from "@/testUtils/fixtures";
 import { buildApiClient, renderRoutes } from "@/testUtils/renderWithProviders";
 
-const activeAccount: AccountSummary = {
-  id: 1,
-  email: "a***@example.com",
-  status: "active",
-  plan: "free",
-  spam_marked_at: null,
-  created_at: "2026-09-01T01:02:03.456789Z",
-};
+const activeAccount = buildAccountSummary();
 
-const suspendedSpamAccount: AccountSummary = {
+const suspendedSpamAccount = buildAccountSummary({
   id: 2,
   email: "b***@example.org",
   status: "suspended",
   plan: "pro",
   spam_marked_at: "2026-09-20T10:00:00.000000Z",
   created_at: "2026-09-02T01:02:03.456789Z",
-};
+  risk: { score: 72, band: "high", flagged_for_review: true },
+});
 
 function renderAccountsPage(
   searchAccounts: ApiClient["searchAccounts"],
   route = "/accounts",
+  group: StaffGroup = "viewer",
 ): void {
   renderRoutes({
     apiClient: buildApiClient({
-      fetchSession: () => Promise.resolve(buildSession("viewer")),
+      fetchSession: () => Promise.resolve(buildSession(group)),
       searchAccounts,
     }),
     route,
@@ -39,6 +39,39 @@ function renderAccountsPage(
 }
 
 describe("AccountsPage", () => {
+  it("shows the risk score and the band as text, and a Review badge on a flagged row", async () => {
+    renderAccountsPage(
+      jest.fn<ApiClient["searchAccounts"]>().mockResolvedValue({
+        items: [
+          activeAccount,
+          suspendedSpamAccount,
+          buildAccountSummary({
+            id: 3,
+            email: "c***@example.com",
+            risk: { score: 45, band: "medium", flagged_for_review: false },
+          }),
+        ],
+        next_cursor: null,
+      }),
+    );
+
+    await screen.findByRole("table");
+    expect(screen.getByRole("columnheader", { name: "Risk" })).toBeTruthy();
+    const [, lowRow, highRow, mediumRow] = screen.getAllByRole("row");
+    if (lowRow === undefined || highRow === undefined || mediumRow === undefined) {
+      throw new Error("The table has fewer rows than the test gave it.");
+    }
+    expect(within(lowRow).getByText("12")).toBeTruthy();
+    expect(within(lowRow).getByText("Low risk")).toBeTruthy();
+    expect(within(lowRow).queryByText("Review")).toBeNull();
+    expect(within(highRow).getByText("72")).toBeTruthy();
+    expect(within(highRow).getByText("High risk")).toBeTruthy();
+    expect(within(highRow).getByText("Review")).toBeTruthy();
+    expect(within(mediumRow).getByText("45")).toBeTruthy();
+    expect(within(mediumRow).getByText("Medium risk")).toBeTruthy();
+    expect(within(mediumRow).queryByText("Review")).toBeNull();
+  });
+
   it("renders the rows it is given", async () => {
     const searchAccounts = jest.fn<ApiClient["searchAccounts"]>().mockResolvedValue({
       items: [activeAccount, suspendedSpamAccount],
@@ -132,8 +165,9 @@ describe("AccountsPage", () => {
       items: [activeAccount, suspendedSpamAccount],
       next_cursor: "cursor-2",
     });
-    renderAccountsPage(searchAccounts);
+    renderAccountsPage(searchAccounts, "/accounts", "analyst");
     await screen.findByRole("table");
+    await screen.findByRole("search");
 
     const results = await axe(document.body);
 

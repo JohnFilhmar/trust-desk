@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { AuditDetails } from "@/components/AuditDetails";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { ForbiddenState } from "@/components/ForbiddenState";
@@ -13,11 +14,6 @@ import { useSession } from "@/providers/SessionProvider";
 
 const headerCellClasses = "px-4 py-3 text-left text-xs font-medium text-ink-muted";
 const cellClasses = "px-4 py-3 text-sm align-top";
-
-function readReason(details: Record<string, unknown>): string {
-  const reason = details["reason"];
-  return typeof reason === "string" ? reason : "";
-}
 
 /**
  * Shows the audit trail, newest first. A user without `audit.read` sees the
@@ -66,7 +62,7 @@ export function AuditPage(): ReactElement {
                 Account
               </th>
               <th scope="col" className={headerCellClasses}>
-                Reason
+                Details
               </th>
             </tr>
           </thead>
@@ -85,7 +81,9 @@ export function AuditPage(): ReactElement {
                     </TextLink>
                   )}
                 </td>
-                <td className={`${cellClasses} break-words`}>{readReason(entry.details)}</td>
+                <td className={cellClasses}>
+                  <AuditDetails details={entry.details} />
+                </td>
               </tr>
             ))}
           </tbody>

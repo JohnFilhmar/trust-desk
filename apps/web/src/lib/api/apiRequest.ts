@@ -1,9 +1,12 @@
 import { error_envelope_schema } from "@trust-desk/shared";
 import type { z } from "zod";
 import { ApiError } from "@/lib/api/apiError";
+import { createUuid } from "@/lib/ids/createUuid";
 
 /** The part of a fetch response that `apiRequest` reads. */
-export type ApiResponse = Pick<Response, "ok" | "status" | "json">;
+export type ApiResponse = Pick<Response, "ok" | "status" | "json"> & {
+  headers: Pick<Headers, "get">;
+};
 
 /** The part of `fetch` that `apiRequest` calls. A test passes its own. */
 export type FetchFunction = (path: string, init: RequestInit) => Promise<ApiResponse>;
@@ -19,6 +22,8 @@ export type ApiRequestOptions<TSchema extends z.ZodType> = {
   query?: Record<string, string | number | undefined>;
   /** Sent as JSON. When absent, the request has no body and no content type. */
   body?: unknown;
+  /** Extra headers, such as `Idempotency-Key`. They cannot replace the correlation id. */
+  headers?: Record<string, string>;
   /** Replaces the browser's `fetch`. Only tests set it. */
   fetchFunction?: FetchFunction;
 };
@@ -33,9 +38,10 @@ export type ApiRequestOptions<TSchema extends z.ZodType> = {
 export async function apiRequest<TSchema extends z.ZodType>(
   options: ApiRequestOptions<TSchema>,
 ): Promise<z.infer<TSchema>> {
-  const correlationId = crypto.randomUUID();
+  const correlationId = createUuid();
   const send = options.fetchFunction ?? browserFetch;
   const headers: Record<string, string> = {
+    ...options.headers,
     Accept: "application/json",
     "X-Correlation-Id": correlationId,
   };
@@ -58,6 +64,7 @@ export async function apiRequest<TSchema extends z.ZodType>(
       code: "network_error",
       message: "The server could not be reached. Check your connection and try again.",
       correlationId,
+      retryAfterSeconds: null,
     });
   }
 
@@ -73,6 +80,7 @@ export async function apiRequest<TSchema extends z.ZodType>(
       code: envelope.data.error.code,
       message: envelope.data.error.message,
       correlationId: envelope.data.error.correlation_id,
+      retryAfterSeconds: readRetryAfter(response),
     });
   }
 
@@ -110,11 +118,22 @@ async function readBody(response: ApiResponse): Promise<unknown> {
   }
 }
 
+// The header may also hold a date. This API sends whole seconds, so anything
+// else counts as no header.
+function readRetryAfter(response: ApiResponse): number | null {
+  const value = response.headers.get("Retry-After");
+  if (value === null || !/^\d+$/.test(value.trim())) {
+    return null;
+  }
+  return Number(value.trim());
+}
+
 function unexpectedResponse(status: number, correlationId: string): ApiError {
   return new ApiError({
     status,
     code: "unexpected_response",
     message: "The server sent a response this app could not read.",
     correlationId,
+    retryAfterSeconds: null,
   });
 }

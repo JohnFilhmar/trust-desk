@@ -3,7 +3,13 @@ import type { StaffGroup } from "@trust-desk/shared";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ApiClient } from "@/lib/api/apiClient";
-import { buildApiError, buildSession, correlationId } from "@/testUtils/fixtures";
+import {
+  buildAccount,
+  buildApiError,
+  buildRevealedAccount,
+  buildSession,
+  correlationId,
+} from "@/testUtils/fixtures";
 import { buildApiClient, renderRoutes } from "@/testUtils/renderWithProviders";
 
 function signedOut(): Promise<never> {
@@ -112,44 +118,39 @@ describe("routes", () => {
     expect(alert.textContent).toContain(correlationId);
   });
 
-  it("shows the audit entries with the reason narrowed from details", async () => {
+  it("clears every cached answer and every revealed value on sign out", async () => {
+    const user = userEvent.setup();
+    const masked = buildAccount();
+    const unmasked = buildRevealedAccount();
+    const fetchAccount = jest
+      .fn<ApiClient["fetchAccount"]>()
+      .mockResolvedValueOnce({ account: masked, enforcement_actions: [] })
+      .mockReturnValue(new Promise(() => undefined));
     renderRoutes({
       apiClient: buildApiClient({
-        fetchSession: signedInAs("viewer"),
-        fetchAuditLogs: () =>
-          Promise.resolve({
-            items: [
-              {
-                id: 9,
-                action: "account.suspend",
-                actor: { id: 3, display_name: "Demo Enforcer" },
-                account_id: 42,
-                details: { reason: "Twelve accounts share this fingerprint." },
-                correlation_id: correlationId,
-                created_at: "2026-09-30T01:02:03.456789Z",
-              },
-              {
-                id: 8,
-                action: "mode.change",
-                actor: { id: 3, display_name: "Demo Enforcer" },
-                account_id: null,
-                details: { reason: 12 },
-                correlation_id: correlationId,
-                created_at: "2026-09-29T01:02:03.456789Z",
-              },
-            ],
-          }),
+        fetchSession: signedInAs("analyst"),
+        login: () => Promise.resolve(buildSession("analyst")),
+        logout: () => Promise.resolve(),
+        fetchAccount,
+        revealAccountPii: () => Promise.resolve({ account: unmasked, audit_log_id: 7 }),
       }),
-      route: "/audit",
+      route: "/accounts/42",
     });
+    await user.click(await screen.findByRole("button", { name: "Reveal PII" }));
+    await user.type(screen.getByLabelText("Reason"), "Checking a report against this signup.");
+    await user.click(screen.getByRole("button", { name: "Reveal" }));
+    expect(await screen.findByText(unmasked.email)).toBeTruthy();
 
-    expect(await screen.findByText("Twelve accounts share this fingerprint.")).toBeTruthy();
-    expect(screen.getByText("Suspended an account")).toBeTruthy();
-    expect(screen.getByText("Changed the operational mode")).toBeTruthy();
-    const accountLinks = screen.getAllByRole("link", { name: "Account 42" });
-    expect(accountLinks).toHaveLength(1);
-    expect(accountLinks[0]?.getAttribute("href")).toBe("/accounts/42");
-    expect(screen.queryByText("12")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(await screen.findByRole("button", { name: "Sign in as Demo Analyst" }));
+
+    // A cache that survived the sign out would show the account at once.
+    // The second request never answers, so only a cleared cache shows loading.
+    expect(await screen.findByText("Loading the account")).toBeTruthy();
+    expect(fetchAccount).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(unmasked.email)).toBeNull();
+    expect(screen.queryByText(masked.email)).toBeNull();
+    expect(screen.queryByText("Revealed")).toBeNull();
   });
 
   it("shows the not-found page for an unknown path", async () => {
