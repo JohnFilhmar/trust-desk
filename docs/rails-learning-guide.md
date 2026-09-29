@@ -2,7 +2,7 @@
 
 My Ruby and Rails textbook for this codebase. It grows with each phase. Every claim here points at a file in this repository.
 
-Status: covers Phase 0. The brief allows this guide to trail the code by one phase. It must be complete before Phase 2 is called done.
+Status: covers Phases 0 and 1. The brief allows this guide to trail the code by one phase. It must be complete before Phase 2 is called done.
 
 ## How the app was generated
 
@@ -205,6 +205,350 @@ One thing to unlearn from JavaScript: only `nil` and `false` are falsy. `0` and 
 
 Why two services for one app: `migrate` connects as the admin database user and `core-api` as the runtime user. The runtime user cannot create a table, so a migration run from `core-api` fails.
 
+## The request lifecycle, step by step
+
+One request, followed through every file it touches: an enforcer suspends account 42.
+
+The handlers send this, on the internal Docker network:
+
+```
+POST /internal/accounts/42/suspend
+X-Signature: 87f59f...
+X-Signature-Timestamp: 1790726400
+X-Signature-Nonce: 5f0c1b9e-2a3d-4c6f-8e7a-9b0c1d2e3f40
+X-Correlation-Id: 3f2b6c1e-8d4a-4b7e-9c55-0a1b2c3d4e5f
+
+{"actor_staff_user_id":3,"reason":"Twelve accounts share this fingerprint.","idempotency_key":null}
+```
+
+| Step | What happens | File |
+|---|---|---|
+| 1 | Puma, the web server, accepts the connection and hands the request to Rails | `config/puma.rb`, `config.ru` |
+| 2 | The request passes through the Rack middleware, a chain of 19 small classes. One checks the Host header, one assigns a request id, one writes the log lines, one turns an exception into an error response. None of them parses the body: the request object does that when `params` is first read | `config/environments/*.rb` sets `config.hosts` |
+| 3 | The router matches the method and the path, and picks `Internal::AccountsController#suspend` | `config/routes.rb` |
+| 4 | Rails creates one new controller object for this request | `app/controllers/internal/accounts_controller.rb` |
+| 5 | `before_action :verify_signed_request` runs. It checks the header formats, the timestamp, the signature, then stores the nonce | `app/controllers/concerns/signed_request.rb`, `lib/request_signature.rb`, `app/models/signed_request_nonce.rb` |
+| 6 | `before_action :load_actor_who_may_enforce` loads staff user 3 and checks the permission | `app/controllers/internal/accounts_controller.rb`, `app/models/staff_user.rb` |
+| 7 | `before_action :load_account` loads account 42 | same controller |
+| 8 | The action `suspend` runs. It reads the reason through strong params and calls the service | same controller |
+| 9 | The service validates the reason, locks the row, checks the status, and writes three rows in one transaction | `app/services/suspend_account.rb` |
+| 10 | The serializer turns the result into a hash, field by field | `app/serializers/enforcement_result_serializer.rb` |
+| 11 | `render json: ..., status: :created` turns the hash into JSON and sends 201 | the controller |
+| 12 | If anything raised, `rescue_from` turned it into the error envelope | `app/controllers/internal/base_controller.rb` |
+
+See the middleware chain of this app with:
+
+```
+dc run --rm migrate bin/rails middleware
+```
+
+A filter that renders a response stops the chain. That is how step 5 refuses a bad signature: `render_error` renders, so steps 6 to 11 never run. There is no `return next()` to forget, as there is in Express.
+
+## Concepts, with where each one lives
+
+### Routes
+
+`config/routes.rb` is the only place a URL is declared. `namespace :internal` does two things at once: it puts `/internal` in front of every path inside the block, and it makes Rails look for the controllers in the module `Internal`, in `app/controllers/internal/`.
+
+`"accounts#suspend"` reads as "the method `suspend` of `AccountsController`".
+
+Express, NestJS: the router file, or the decorators on a controller. Django: `urls.py`.
+
+### Controllers and actions
+
+A controller is a class. Each public method is an action, which means a URL can reach it. Methods under `private` cannot be reached by a URL. That is a security rule as much as a style rule: a helper left public in a controller is a possible endpoint.
+
+Rails makes a new controller object for every request, so an instance variable such as `@account` lives for one request and is never shared.
+
+Where: `app/controllers/internal/accounts_controller.rb`.
+
+### `before_action`
+
+Runs a method before an action. Filters run in the order they are declared, parent class first. One that renders or redirects stops the request.
+
+Express: middleware mounted on one router. NestJS: a guard.
+
+Where: three of them in `accounts_controller.rb`, one in `signed_request.rb`.
+
+### Strong params
+
+`params` holds everything the request sent. Strong params is the rule that you must name a field to use it. `params.expect(:reason)` returns the value of `reason` and raises when it is missing, blank, or an array or object where one value was expected.
+
+It exists because of mass assignment. Without it, `Account.update(params)` would let a caller set any column by adding a key to the request body.
+
+zod does the same job in the handlers. The difference is that zod also checks the type and the length. In Rails, those checks live on the model as validations.
+
+Where: `accounts_controller.rb`.
+
+### Concerns
+
+A module mixed into a class with `include`. `SignedRequest` holds the signature check, and every internal controller gets it through `Internal::BaseController`.
+
+`extend ActiveSupport::Concern` gives the module the `included do ... end` block. The code in that block runs inside the class that includes the module, as if it were written there. That is how a module can declare a `before_action`.
+
+Express: a middleware function. NestJS: a guard. TypeScript has no mixins built in, so this is the concept with the weakest equivalent.
+
+Where: `app/controllers/concerns/signed_request.rb`.
+
+### `rescue_from`
+
+Maps an exception class to a method, for every action of a controller and its children. It is how one place turns every failure into the error envelope.
+
+Rails tries the `rescue_from` lines from the bottom up. So the catch-all for `StandardError` is written first, and the specific classes after it.
+
+Express: the error-handling middleware with four arguments. NestJS: an exception filter.
+
+Where: `app/controllers/internal/base_controller.rb`.
+
+### Models and ActiveRecord
+
+A class that inherits from `ApplicationRecord` maps to a table. `StaffUser` maps to `staff_users` with no configuration, because Rails turns the class name into a plural, snake_case table name.
+
+The class gets one reader and one writer per column, without any being declared. `account.status` works because the table has a `status` column. Rails reads the column list from the database at boot.
+
+ActiveRecord is both the model and the query builder. `Account.find_by(id: 42)` returns a record or nil. `Account.find(42)` raises when nothing matches. This app uses `find_by` and answers 404 itself.
+
+TypeORM, Prisma, Django ORM: the same idea. The difference is that a Rails model declares no columns.
+
+Where: `app/models/`.
+
+### Validations
+
+Rules a model checks before a save. A record that fails is not written, and `record.errors` lists why.
+
+```ruby
+validates :reason, presence: true, length: { in: 10..500 }
+```
+
+`save` returns false on failure. `save!` raises. This app uses the `!` form inside transactions, because an exception is what rolls a transaction back.
+
+A validation is not a database constraint. `validates :email, uniqueness: true` runs a SELECT first, and two requests arriving together can both pass it. The unique index is what settles that. This app has both, and says so in `staff_user.rb`.
+
+Where: every model.
+
+### Associations
+
+`belongs_to :account` says this table has an `account_id` column, and adds `enforcement_action.account`. `has_many :events` adds `account.events`.
+
+Since Rails 5, `belongs_to` also validates that the other record exists. `optional: true` switches that off. `AuditLog` uses it for the account, because a mode change concerns no single account.
+
+Where: `app/models/enforcement_action.rb`, `account.rb`, `audit_log.rb`.
+
+### Enums
+
+```ruby
+enum :status, { active: "active", suspended: "suspended" }
+```
+
+This one line adds `account.active?`, `account.suspended?`, the queries `Account.active` and `Account.suspended`, and refuses any other value.
+
+The hash form stores the text in the column. The array form, `enum :status, [:active, :suspended]`, stores 0 and 1, which means reordering the array silently changes what every row means. This app always uses the hash form.
+
+Where: `app/models/account.rb`.
+
+### Callbacks
+
+A method Rails calls at a fixed point in the life of a record: before validation, before save, after commit and so on.
+
+This app uses one, `before_validation :strip_reason`, so that the length is measured on the text without the spaces around it.
+
+It avoids more, on purpose. A callback runs on every save from anywhere, including from a test or the console, and nothing at the call site shows it. Business steps such as "write the audit row" live in a service object where they can be read top to bottom.
+
+Where: `app/models/enforcement_action.rb`.
+
+### Transactions and row locks
+
+```ruby
+@account.with_lock do
+  raise AlreadySuspended if @account.suspended?
+  action.save!
+  @account.update!(status: "suspended")
+  write_audit_log(action, previous_status)
+end
+```
+
+`with_lock` does three things: opens a transaction, runs `SELECT ... FOR UPDATE` on this one row, and reloads the record from it. A second request for the same account waits on that line until the first block ends. It then reads the new status and raises.
+
+The status is checked inside the block. Checked before it, the value in memory could be one another request has just changed.
+
+An exception raised inside the block rolls back all three writes.
+
+This is pessimistic locking. The other kind is optimistic: a `lock_version` column that Rails increments on every save, and a save that fails when the number has moved. Pessimistic was chosen because the second enforcer should get a clear 409 about the account's state, not a retry error about a version number.
+
+Where: `app/services/suspend_account.rb`.
+
+### Service objects
+
+A plain Ruby class that holds one business operation. Rails has no folder for them. This app uses `app/services/`, which Rails autoloads like every folder directly under `app/`.
+
+The reason to have them: a controller should read the request and write the response, and a model should describe one table. "Suspend an account" touches three tables and has rules of its own, so it fits neither.
+
+`SuspendAccount.new(...).call` is the convention: build with the inputs, then one public method.
+
+NestJS: a provider. There, the framework has a place for it.
+
+Where: `app/services/suspend_account.rb`.
+
+### Serializers
+
+A plain Ruby class with an `as_json` method that returns a hash. Every field is written by hand, so a new column stays out of the response until someone adds it.
+
+`render json: some_hash` turns a hash into JSON text. `render json: some_model` would send every column, which is why this app never does it.
+
+Where: `app/serializers/`. The decision is in `docs/decisions/002-rails-serializers.md`.
+
+### `has_secure_password`
+
+One line that adds a `password=` writer, which stores a bcrypt hash in `password_digest`, and an `authenticate(password)` method. It needs the `bcrypt` gem and a column named exactly `password_digest`.
+
+In this app Rails only writes the hash, in the seed. The handlers verify it at login with `bcryptjs`. An integration test proves that a hash written by Ruby is accepted by JavaScript: `apps/handlers/src/repositories/database.integration.test.ts`.
+
+Where: `app/models/staff_user.rb`.
+
+### Seeds
+
+`db/seeds.rb` is a Ruby script. `bin/rails db:seed` runs it. It has no structure of its own, so this app splits it into plain classes under `db/seeds/`.
+
+`insert_all` writes many rows in one statement. It skips validations and callbacks, which is why it is fast and why the seed builds its rows carefully.
+
+The seed passes one `Random.new(20260930)` everywhere it needs randomness, so every run writes the same data. It prints a digest to prove it.
+
+Where: `db/seeds.rb`, `db/seeds/`.
+
+### Raw SQL in a migration
+
+Rails has helpers for tables, columns and indexes. For anything else, `execute` runs SQL as written. The audit trigger is created that way.
+
+A migration that uses `execute` needs `up` and `down` written out. `change` only works when Rails can work out the reverse by itself.
+
+Where: `db/migrate/20260930000007_create_audit_logs.rb`.
+
+### Generated columns
+
+```ruby
+t.virtual :signup_fingerprint, type: :string, stored: false,
+  as: "(json_unquote(json_extract(`signup_context`, _utf8mb4'$.device_fingerprint')))"
+```
+
+MySQL computes the column from the JSON, and an index on it makes a search by fingerprint an index lookup. Rails calls these virtual columns. `stored: false` means MySQL keeps only the index on disk.
+
+The handlers query the column by name. An integration test runs `EXPLAIN` to prove the index is used.
+
+Where: `db/migrate/20260930000003_create_accounts.rb`.
+
+## The magic list
+
+Things Rails does that no line of code asks for. Each one confused me, or would have.
+
+| What happens | Why | What to remember |
+|---|---|---|
+| `Account` finds the table `accounts` | Rails pluralizes the class name | A table named against the rule needs `self.table_name = "..."` |
+| Nothing requires `suspend_account.rb` | Zeitwerk loads a file when its constant is first used | The file name decides the constant. `suspend_account.rb` must define `SuspendAccount` |
+| A new folder under `app/` is not found until restart | Autoload paths are fixed at boot | Restart the server after adding `app/services/` or `app/serializers/` |
+| `account.email` works with no `attr_reader` | Rails reads the columns from the database at boot | The schema is the source of truth for a model's fields |
+| A column named `type` breaks the model | Rails uses `type` for single-table inheritance | Never name a column `type`. This app uses `event_type` and `action_type` |
+| A controller action with no `render` looks for a template | Implicit rendering | In API mode it answers 204. This app always renders explicitly |
+| A comment in `database.yml` ran as code | ERB runs over the whole file first | Never write ERB tags in a comment of a YAML file Rails loads |
+| `created_at` fills in by itself | Rails sets it when the column exists | A table with `created_at` and no `updated_at` works with no configuration |
+| `params` has a second copy of the body under `account` | `wrap_parameters` | This app switches it off in the base controller |
+| `Time.now` and `Time.current` differ | `Time.current` uses the zone in `config.time_zone` | Always `Time.current`. This app runs in UTC, so the two agree here and would not elsewhere |
+| A test's rows are gone afterwards | Each test runs in a transaction that is rolled back | Data a test needs comes from fixtures or is created inside the test |
+| `0` and `""` are true | Only `nil` and `false` are falsy in Ruby | `if count` is always true. Write `if count > 0` |
+
+## Where this app departs from stock Rails
+
+So that I do not mistake my own choices for Rails conventions.
+
+| This app | A stock Rails app | Why |
+|---|---|---|
+| API-only mode | Renders HTML views | The front end is a separate React app |
+| No sessions, no cookies | Session cookie by default | The handlers own the session. Rails is never reached by a browser |
+| Authenticates a service, with HMAC | Authenticates a user | Its one caller is another service |
+| Trusts the staff user id in the signed body | Reads the user from its own session | The handlers authenticated the user. Rails checks the permission itself |
+| `db/structure.sql` | `db/schema.rb` | The schema has triggers, which Ruby cannot describe |
+| Environment variables for every secret | `config/credentials.yml.enc` | One mechanism for both services. The credentials file is kept and unused |
+| Two database users, admin and runtime | One user that can do anything | Least privilege. The runtime user cannot create or drop a table |
+| Column-level UPDATE grant on `accounts` | Table-level privileges | Rails may change a status, never an email |
+| No background jobs | Active Job with Solid Queue | Nothing here runs in the background |
+| Service objects in `app/services/` | Logic in models and controllers | Rails has no opinion. Many teams add this folder |
+| Serializers in `app/serializers/` | Jbuilder templates, or `to_json` | Fields are listed by hand, per ADR 002 |
+| Tests on one worker | One worker per processor | One test database is enough for a suite this size |
+| Plain HTTP between services | `force_ssl` on | The network is private and the HMAC signature authenticates each call |
+
+## Debugging
+
+### Reading a stack trace
+
+Read from the top, and skip to the first line that starts with `/app/`. Lines from `/usr/local/bundle/` are gem code. Rails traces are long because a request passes through every middleware, and each one adds a frame.
+
+### The development log
+
+```
+dc exec core-api tail -f log/development.log
+```
+
+In development Rails writes to `log/development.log`, not to the container's output. So `dc logs core-api` shows little, and this file shows everything.
+
+It logs every SQL statement with its timing. After each one, a line starting with `↳` names the file and line of this app that caused it:
+
+```
+REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'td_core_api'@'%'
+↳ lib/database_grants.rb:65:in 'block in DatabaseGrants.apply!'
+```
+
+That is the fastest way to find which line ran a query.
+
+At debug level the log holds values, seeded emails among them. Production logs at `info`, which logs no SQL.
+
+### A breakpoint
+
+Write `debugger` on any line. Then run the server attached to a terminal:
+
+```
+dc run --rm --service-ports core-api bin/rails server -b 0.0.0.0
+```
+
+When a request reaches the line, the terminal stops there. `n` steps over, `s` steps in, `c` continues, and any Ruby expression is evaluated.
+
+### The console
+
+```
+dc exec core-api bin/rails console
+```
+
+A Ruby prompt with the whole app loaded. It connects as the runtime user, so it can do what the running app can do and no more.
+
+```ruby
+Account.suspended.count
+Account.find(189).signup_context
+StaffUser.find_by(email: "analyst@example.com").permissions
+OperationalMode.current
+AuditLog.order(created_at: :desc).first
+```
+
+Add `--sandbox` to roll back everything on exit. For the database itself:
+
+```
+dc exec mysql mysql -utd_handlers -p trust_desk_development
+```
+
+## A 30-minute reading path
+
+Read in this order. Each file builds on the one before.
+
+| Minutes | File | What to look for |
+|---|---|---|
+| 2 | `config/routes.rb` | The whole surface of the app |
+| 3 | `db/structure.sql` | The tables, the generated columns, the two triggers |
+| 3 | `lib/database_grants.rb` | Who may do what, in one hash |
+| 4 | `lib/request_signature.rb` | The signing scheme, with no Rails in it |
+| 4 | `app/controllers/concerns/signed_request.rb` | The order of the checks, and why |
+| 3 | `app/controllers/internal/base_controller.rb` | The error envelope and `rescue_from` |
+| 3 | `app/controllers/internal/accounts_controller.rb` | A thin controller |
+| 4 | `app/services/suspend_account.rb` | The lock and the transaction |
+| 2 | `app/models/audit_log.rb` | Three layers of append-only |
+| 2 | `test/controllers/internal/accounts_controller_test.rb` | The same story, told as what must be refused |
+
 ## Still to come
 
-Written in Phases 1 and 2: the request lifecycle, controllers and strong params, models and validations, associations, scopes, enums, transactions and locking, concerns, service objects, `rescue_from`, `CurrentAttributes`, serializers, tagged logging, fixtures, debugging, the list of Rails magic, where this app departs from stock Rails, and the 30-minute reading path.
+Written when Phase 2 lands: scopes, `ActiveSupport::CurrentAttributes`, tagged logging, advisory locks, idempotency, fixtures in depth, and the rows of the file map for the Phase 1 and Phase 2 files.

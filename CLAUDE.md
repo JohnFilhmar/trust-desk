@@ -178,6 +178,16 @@ Each one was hit for real on 2026-09-30. The error text is what the tool printed
 - **Node 22 runs TypeScript source directly.** The handlers have no build step. That works only with syntax Node can erase, so `erasableSyntaxOnly` is on: no enums, no parameter properties, no namespaces.
 - **My Claude Code settings deny writes to any path starting with `.env`,** `.env.example` included. The variable list lives in `docs/env-reference.md`.
 - **On PowerShell, a native command that writes to stderr looks like a failure** even when it exits 0. Docker writes its progress to stderr. Read the exit code, not the red text.
+- **Rails finds a new folder under `app/` only after a restart.** Autoload paths are fixed at boot. After `app/services/` was added, suspend answered 500 with `NameError message=uninitialized constant Internal::AccountsController::SuspendAccount` until `core-api` was restarted.
+- **`bin/rails db:prepare` does not seed an existing database.** It seeds only when it has just created one, and here the MySQL container creates it first. `db:seed_if_empty` fills the gap.
+- **In development Rails logs to `log/development.log`, not to the container's output.** `dc logs core-api` shows almost nothing. The SQL lines and their `↳` source markers are in the file.
+- **No Rack middleware parses the JSON body.** `bin/rails middleware` lists 19 entries and none does it. The request object parses the body when `params` is first read.
+- **SWC does not hoist `jest.mock` when `jest` is imported from `@jest/globals`.** The `require` of the subject ends up above the `jest.mock` call, so the mock never applies. The web app injects its API client through `ApiClientProvider` for that reason.
+- **jsdom has no `Request`, and React Router's data router needs one to navigate.** Page tests render the route table through `MemoryRouter` and `useRoutes`.
+- **Minitest 6 ships no `stub`.** A test that needs a method to fail uses a small subclass that overrides it.
+- **A Ruby reader named `method` replaces `Object#method`.** `RequestSignature` names its reader `http_method`.
+- **`mysql2` hands `SUM()` back as text and `COUNT()` as a number.** Row schemas use `z.coerce.number()` for both.
+- **A MariaDB dump starts with a sandbox comment that the MariaDB client understands.** `db/structure.sql` is written and loaded by the same client, so it works. Loading it with Oracle's `mysql` client has not been tried.
 
 ## Traps not yet verified
 
@@ -198,6 +208,7 @@ Verified commands only. Each one below was run on 2026-09-30 and worked. Run the
 | TypeScript tests | `dc run --rm install pnpm run test` |
 | Rails tests | `dc run --rm -e RAILS_ENV=test migrate sh -c "bin/rails db:test:prepare && bin/rails test"` |
 | End-to-end smoke test | `dc --profile e2e run --rm e2e` |
+| TypeScript tests against real MySQL | `dc run --rm handlers sh -c "cd /repo && pnpm --filter @trust-desk/handlers run test:integration"` |
 | Migrate and apply grants | `dc run --rm migrate bin/rails db:prepare db:grants` |
 | Migration status | `dc run --rm migrate bin/rails db:migrate:status` |
 | Rails routes | `dc exec core-api bin/rails routes` |
@@ -205,8 +216,11 @@ Verified commands only. Each one below was run on 2026-09-30 and worked. Run the
 | RuboCop | `dc run --rm migrate bin/rubocop` |
 | Brakeman | `dc run --rm migrate bin/brakeman --no-pager` |
 | MySQL shell as the handlers user | `dc exec mysql mysql -utd_handlers -p trust_desk_development` |
-| Seed data | TBD, Phase 1 |
-| Reset demo data | TBD, Phase 2 |
+| Rails development log, with SQL | `dc exec core-api tail -f log/development.log` |
+| Rails middleware list | `dc run --rm migrate bin/rails middleware` |
+| Seed data, and reset demo data | `dc run --rm migrate bin/rails db:seed` |
+| Seed only when empty | runs by itself on `up`, as part of the `migrate` service |
+| Rewrite the signing test vectors | `dc run --rm install node packages/shared/scripts/generate_signing_vectors.mjs` |
 | Deploy | TBD, see `docs/deploy-runbook.md` |
 
 Anything that migrates or tests runs in the `migrate` service, because it connects as the admin user. The `core-api` service connects as the runtime user, which cannot create a table.
