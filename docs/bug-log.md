@@ -2,6 +2,16 @@
 
 Every bug found during the build, with the test that now catches it. Newest first.
 
+## 003: the production Rails container never started
+
+- **Found:** 2026-09-30, Phase 2, the first time the production images were run, on a development machine and before any deploy.
+- **Symptom:** `core-api` restarted in a loop. The log said `Permission denied @ dir_s_mkdir - /app/tmp/cache (Errno::EACCES)`.
+- **Cause:** the production container has a read-only filesystem, with in-memory mounts at `/app/tmp` and `/app/log` for what Rails must write. An in-memory mount belongs to root unless told otherwise, and Rails runs as user 1001. So Rails could not create `tmp/cache`.
+- **Why development missed it:** the development container runs as root on a writable filesystem. The fault exists only where the hardening is.
+- **Fix:** the two mounts in `docker-compose.prod.yml` now carry `uid=1001,gid=1001,mode=0700`.
+- **Regression test:** `infra/scripts/check_production_images.sh` runs 18 checks against the production images through the ports they publish. It cannot pass unless Rails is up, since check 12 suspends an account through the signed call. It passed after the fix.
+- **What it taught me:** every hardening option is a change in behavior, and only running the hardened image shows what it broke. Had the production images first run on the server, this would have cost part of the deploy window.
+
 ## 002: the console failed on any plain HTTP origin other than localhost
 
 - **Found:** 2026-09-30, Phase 1, by the first Playwright run against a clean checkout. 4 of 5 tests failed. The one that passed used no page.

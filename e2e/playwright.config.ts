@@ -8,6 +8,10 @@ export default defineConfig({
   testDir: "./tests",
   timeout: 30_000,
   retries: 0,
+  // One test at a time. The tests share one database, and one of them puts
+  // the console in lockdown, which would break any test running beside it.
+  workers: 1,
+  fullyParallel: false,
   reporter: [["list"]],
   use: {
     baseURL: base_url,

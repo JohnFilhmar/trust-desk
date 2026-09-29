@@ -1,0 +1,180 @@
+# Production stack, for the EC2 instance that also serves another site.
+#
+# It reads every value from a file named .env beside it. That file is
+# created by hand on the server and never committed. docs/env-reference.md
+# lists what it must hold.
+#
+# Images are built away from the server and pulled here. Building on the
+# server could use up its memory and take the other site down with it.
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# The project name, the networks and the volumes all start with trust-desk,
+# so nothing here can collide with the other site's containers.
+
+name: trust-desk
+
+x-hardening: &hardening
+  restart: unless-stopped
+  # The container cannot write to its own filesystem.
+  read_only: true
+  # Every Linux capability is removed. None of these services needs one.
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    # Three files of 10 MB each, per container. A busy day cannot fill the disk.
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  mysql:
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/trust-desk-mysql:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    cap_drop: ["ALL"]
+    # MySQL's entrypoint starts as root, takes ownership of the data
+    # directory, then drops to the mysql user. These four are what that needs.
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "SETGID", "SETUID"]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      DB_NAME: ${DB_NAME:?}
+      DB_TEST_NAME: ${DB_TEST_NAME:?}
+      DB_ADMIN_USERNAME: ${DB_ADMIN_USERNAME:?}
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:?}
+      DB_CORE_API_USERNAME: ${DB_CORE_API_USERNAME:?}
+      DB_CORE_API_PASSWORD: ${DB_CORE_API_PASSWORD:?}
+      DB_HANDLERS_USERNAME: ${DB_HANDLERS_USERNAME:?}
+      DB_HANDLERS_PASSWORD: ${DB_HANDLERS_PASSWORD:?}
+    volumes:
+      - trust_desk_mysql_data:/var/lib/mysql
+    tmpfs:
+      - /tmp
+      - /var/run/mysqld
+    networks: [trust_desk_internal]
+    # No `ports`. MySQL is reachable only from the two services below.
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    mem_limit: 400m
+
+  # Runs once per deploy and exits. Migrations and grants, as the admin user.
+  migrate:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:?}/trust-desk-core-api:${IMAGE_TAG:?}
+    restart: "no"
+    command: ["bin/rails", "db:migrate", "db:grants"]
+    environment: &rails_environment
+      RAILS_ENV: production
+      RAILS_LOG_LEVEL: ${RAILS_LOG_LEVEL:-info}
+      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-3}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?}
+      SERVICE_HMAC_SECRET: ${SERVICE_HMAC_SECRET:?}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?}
+      DB_USERNAME: ${DB_ADMIN_USERNAME:?}
+      DB_PASSWORD: ${DB_ADMIN_PASSWORD:?}
+      DB_CORE_API_USERNAME: ${DB_CORE_API_USERNAME:?}
+      DB_HANDLERS_USERNAME: ${DB_HANDLERS_USERNAME:?}
+    tmpfs: &rails_tmpfs
+      - /tmp
+      # An in-memory mount belongs to root unless told otherwise, and Rails
+      # runs as user 1001, which the Dockerfile creates. Without uid and gid
+      # here, Rails cannot create tmp/cache and never starts.
+      - /app/tmp:uid=1001,gid=1001,mode=0700
+      - /app/log:uid=1001,gid=1001,mode=0700
+    networks: [trust_desk_internal]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: 400m
+
+  core-api:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:?}/trust-desk-core-api:${IMAGE_TAG:?}
+    environment:
+      <<: *rails_environment
+      # The runtime user. It cannot create or drop a table.
+      DB_USERNAME: ${DB_CORE_API_USERNAME:?}
+      DB_PASSWORD: ${DB_CORE_API_PASSWORD:?}
+    tmpfs: *rails_tmpfs
+    # Only the internal network, and no `ports`. Rails is never public.
+    networks: [trust_desk_internal]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "ruby", "-rnet/http", "-e", "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/up')).is_a?(Net::HTTPSuccess) ? 0 : 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    mem_limit: 400m
+
+  handlers:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:?}/trust-desk-handlers:${IMAGE_TAG:?}
+    environment:
+      NODE_ENV: production
+      HANDLERS_PORT: "8787"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ORIGINS: ${APP_ORIGINS:?}
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_NAME: ${DB_NAME:?}
+      DB_HANDLERS_USERNAME: ${DB_HANDLERS_USERNAME:?}
+      DB_HANDLERS_PASSWORD: ${DB_HANDLERS_PASSWORD:?}
+      CORE_API_URL: http://core-api:3000
+      SERVICE_HMAC_SECRET: ${SERVICE_HMAC_SECRET:?}
+      SESSION_SECRET: ${SESSION_SECRET:?}
+    tmpfs:
+      - /tmp
+    networks: [trust_desk_internal, trust_desk_edge]
+    ports:
+      # Bound to this machine only. Host nginx is the one caller.
+      - "127.0.0.1:${HANDLERS_HOST_PORT:-18787}:8787"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    mem_limit: 200m
+
+  web:
+    <<: *hardening
+    image: ${IMAGE_PREFIX:?}/trust-desk-web:${IMAGE_TAG:?}
+    tmpfs:
+      # nginx writes its pid file and its temporary files here.
+      - /tmp
+      - /var/cache/nginx
+    networks: [trust_desk_edge]
+    ports:
+      - "127.0.0.1:${WEB_HOST_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    mem_limit: 64m
+
+networks:
+  # `internal: true` means no route to the outside at all. MySQL and Rails
+  # live here and nowhere else.
+  trust_desk_internal:
+    internal: true
+  trust_desk_edge:
+
+volumes:
+  trust_desk_mysql_data:

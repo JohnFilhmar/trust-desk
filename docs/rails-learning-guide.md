@@ -2,7 +2,7 @@
 
 My Ruby and Rails textbook for this codebase. It grows with each phase. Every claim here points at a file in this repository.
 
-Status: covers Phases 0 and 1. The brief allows this guide to trail the code by one phase. It must be complete before Phase 2 is called done.
+Status: complete for Phases 0 to 2, the core.
 
 ## How the app was generated
 
@@ -549,6 +549,249 @@ Read in this order. Each file builds on the one before.
 | 2 | `app/models/audit_log.rb` | Three layers of append-only |
 | 2 | `test/controllers/internal/accounts_controller_test.rb` | The same story, told as what must be refused |
 
-## Still to come
+## Concepts added in Phase 2
 
-Written when Phase 2 lands: scopes, `ActiveSupport::CurrentAttributes`, tagged logging, advisory locks, idempotency, fixtures in depth, and the rows of the file map for the Phase 1 and Phase 2 files.
+### Inheritance and the template method
+
+Suspend, unsuspend and mark as spam share every step and differ in four small answers. `AccountEnforcement` holds the steps. Each child holds the four answers.
+
+```ruby
+class UnsuspendAccount < AccountEnforcement
+  private
+
+  def action_type
+    "unsuspend"
+  end
+
+  def check_state!
+    raise NotSuspended unless @account.suspended?
+    raise BlockedByLockdown if OperationalMode.current == "lockdown"
+  end
+end
+```
+
+`<` means "inherits from". Ruby has no `abstract` keyword, so the parent defines the four methods and makes each one raise `NotImplementedError`. A child that forgets one fails the first time it runs, not at compile time. That is the price of a language with no compiler, and the tests are what pay it.
+
+The parent's header comment says why this shape was chosen over one class that takes a rule object.
+
+TypeScript: an abstract class with three implementations.
+
+Where: `app/services/account_enforcement.rb` and its three children.
+
+### Exception hierarchies
+
+```ruby
+class AccountEnforcement
+  class Refused < StandardError; end
+end
+
+class UnsuspendAccount < AccountEnforcement
+  class NotSuspended < Refused; end
+  class BlockedByLockdown < Refused; end
+end
+```
+
+A class defined inside a class is namespaced by it: `UnsuspendAccount::NotSuspended`. Rescuing the parent catches every child, so the controller rescues `AccountEnforcement::Refused` once and looks up the code for the child it got.
+
+`rescue Klass => name` gives the exception a name, like `catch (error)`.
+
+Always inherit from `StandardError`, never from `Exception`. A bare `rescue` catches `StandardError` and its children. `Exception` also covers things such as the signal that stops the process, which no application code should catch.
+
+Where: `app/services/`, `app/controllers/internal/accounts_controller.rb`.
+
+### Blocks and `yield`
+
+```ruby
+answer = IdempotentRequest.new(key: key, ...).run do
+  # the action
+end
+```
+
+The code between `do` and `end` is a block. Inside `run`, `yield` executes it. So `run` decides whether the action runs at all, and wraps it in a transaction when it does.
+
+A block is how Ruby passes a piece of work to a method. `with_lock do`, `transaction do` and `each do` are all the same idea.
+
+TypeScript: passing an arrow function as the last argument.
+
+Where: `app/services/idempotent_request.rb`.
+
+### Idempotency, and how it differs from replay protection
+
+Two layers that are easy to confuse:
+
+| | Replay protection | Idempotency |
+|---|---|---|
+| Stops | the same signed request being accepted twice | the same intent acting twice |
+| Keyed by | the nonce | the idempotency key |
+| Made by | the handlers, fresh for every call | the browser, once per open dialog |
+| A repeat gets | 401 `replayed_request` | the stored answer |
+| Table | `signed_request_nonces` | `idempotency_keys` |
+
+A retry from the browser arrives in a new signed request with a new nonce, so it passes the first layer and is caught by the second.
+
+The stored answer is written in the same transaction as the action. So a stored answer exists exactly when the action happened.
+
+Only a success is stored. A refusal raises, the transaction rolls back, and the analyst can fix the problem and send again with the same key.
+
+Where: `app/services/idempotent_request.rb`, `app/models/idempotency_key.rb`.
+
+### Nested transactions
+
+`IdempotentRequest` opens a transaction, and the action inside it opens another with `with_lock`. Rails joins the two into one. There is one COMMIT, at the end of the outer block.
+
+A consequence that surprises people: raising `ActiveRecord::Rollback` inside the inner block does not roll back the outer one. This app never uses `ActiveRecord::Rollback`. It raises real exceptions, which always travel outward.
+
+### Advisory locks
+
+An account has a row to lock. The operational mode has none, since every change is a new row. Two changes at once could both read "normal" as the previous mode.
+
+An advisory lock is a lock on a name. MySQL gives the name to one connection at a time.
+
+```ruby
+SELECT GET_LOCK('trust_desk_operational_mode', 5)
+```
+
+The lock belongs to a connection. So taking it, the transaction and releasing it must all happen on the same one, which is what `ActiveRecord::Base.with_connection` guarantees.
+
+Where: `app/services/change_operational_mode.rb`.
+
+### `ensure`
+
+Runs when the lines above it finish, and also when they raise. It is `finally`. The advisory lock is released in one, so a refused change does not keep the lock.
+
+### `ActiveSupport::CurrentAttributes`
+
+```ruby
+class Current < ActiveSupport::CurrentAttributes
+  attribute :correlation_id, :staff_user_id
+end
+```
+
+`Current.correlation_id` looks like a global variable and is not one. Each thread has its own copy, and Puma serves each request on one thread.
+
+Rails resets every attribute before and after each request. Puma reuses its threads, so without the reset the next request on the same thread would start with the staff user of the previous one.
+
+It is easy to overuse. This app keeps two ids in it and passes everything else as an argument, so it stays clear what each method depends on.
+
+Node: `AsyncLocalStorage`. NestJS: a request-scoped provider.
+
+Where: `app/models/current.rb`.
+
+### Tagged logging and lambdas
+
+```ruby
+config.log_tags = [ ->(request) { "correlation_id=#{CorrelationId.resolve(request)}" } ]
+```
+
+`->(request) { ... }` is a lambda, a function kept in a value. Rails calls it with the request in the logging middleware, before routing and before any controller. Whatever it returns is put in front of every log line of that request, Rails' own `Started` and `Completed` lines included.
+
+Because it runs so early, the header is read and checked there. The id is then stored in the Rack env, the hash that travels with one request, so the controller gets the same value later.
+
+Where: `config/application.rb`, `lib/correlation_id.rb`.
+
+### Scopes
+
+This app has no hand-written scope. It uses the ones `enum` generates: `Account.active` and `Account.suspended`.
+
+A scope is a named query that returns a relation, so it chains: `Account.suspended.where(plan: "pro").count`. Exercise 3 adds one by hand.
+
+### Fixtures
+
+YAML files in `test/fixtures/`, one per table. Rails loads them into the test database before the suite, and each test runs in a transaction that is rolled back.
+
+```yaml
+enforcer:
+  email: enforcer@example.com
+  group_name: enforcer
+```
+
+In a test, `staff_users(:enforcer)` returns that row. The method is named after the table and the argument after the label.
+
+Two things to know:
+
+- A fixture is inserted directly. It skips validations and callbacks, so a fixture can hold a row the model would refuse.
+- Fixture files go through ERB, like `database.yml`. The same trap applies to comments.
+
+Where: `test/fixtures/`.
+
+### What tests can and cannot do with connections
+
+During a test Rails hands every caller the same database connection, so that everything sits inside the one transaction it will roll back. A lock taken through the pool therefore does not block the code under test. The test that proves the advisory lock makes a second caller wait opens a raw connection of its own with `Mysql2::Client.new`.
+
+Where: `test/services/change_operational_mode_test.rb`.
+
+## Every Ruby idiom in this codebase, in one table
+
+Added to the primer above. Each one appears in the file named.
+
+| Ruby | Meaning | Where |
+|---|---|---|
+| `class A < B` | A inherits from B | `app/services/suspend_account.rb` |
+| `raise NotImplementedError` | How a parent marks a method the child must define | `app/services/account_enforcement.rb` |
+| `InvalidReason = Reason::Invalid` | A constant as a second name for a class | `app/services/account_enforcement.rb` |
+| `rescue Klass => name` | Catch and name the exception | `app/services/idempotent_request.rb` |
+| `yield` | Run the block the caller passed | `app/services/idempotent_request.rb` |
+| `ensure` | `finally` | `app/services/change_operational_mode.rb` |
+| `->(x) { ... }` | A lambda | `config/application.rb` |
+| `Data.define(:a, :b)` | A small immutable class with readers | `app/services/account_enforcement.rb` |
+| `attr_reader :a` | Defines a reader method | `lib/request_signature.rb` |
+| `def self.name` | A method on the class, not on an instance | `app/models/operational_mode.rb` |
+| `module_function` | Makes a module's methods callable on the module | `lib/correlation_id.rb` |
+| `@name` | An instance variable | every service |
+| `@name \|\|= value` | Assign once, then reuse | `app/controllers/internal/base_controller.rb` |
+| `value&.method` | Call only when not nil | `app/controllers/internal/accounts_controller.rb` |
+| `return x unless y` | A guard clause | `app/models/audit_log.rb` |
+| `a & b` on arrays | What both arrays hold | `app/models/audit_log.rb` |
+| `a - b` on arrays | What the first holds and the second does not | `app/services/record_pii_reveal.rb` |
+| `(10..500)` | A range, both ends included | `lib/reason.rb` |
+| `...x` | A range with no start | `app/models/signed_request_nonce.rb` |
+| `hash.sort.to_h` | A hash with its keys in order | `app/services/idempotent_request.rb` |
+| `<<~SQL` | A multi-line string that drops the indentation | `db/migrate/20260930000007_create_audit_logs.rb` |
+| `/\A...\z/` | A regex anchored to the whole string, not to a line | `app/controllers/concerns/signed_request.rb` |
+| `\|a, b, c\|` | Block parameters that take a row apart | `db/seeds/enforcement_plan.rb` |
+
+One of these is a security matter. In Ruby `^` and `$` match at every line break, so `/^[0-9a-f]+$/` accepts `"abc\n<anything>"`. `\A` and `\z` match the start and the end of the whole string. Every format check in this app uses them.
+
+## File map of the code written in Phases 1 and 2
+
+Every file here is W, written for this project.
+
+| File | What it is |
+|---|---|
+| `config/routes.rb` | Six internal routes, the health check, and a catch-all that answers 404 in the envelope |
+| `config/initializers/structure_dump.rb` | One flag for `mysqldump` |
+| `config/initializers/filter_parameter_logging.rb` | What never appears in the `Parameters:` log line |
+| `app/controllers/internal/base_controller.rb` | The signature check, the correlation id, the error envelope |
+| `app/controllers/internal/accounts_controller.rb` | Suspend, unsuspend, mark as spam |
+| `app/controllers/internal/reveals_controller.rb` | The audit row of a PII reveal |
+| `app/controllers/internal/operational_modes_controller.rb` | A mode change |
+| `app/controllers/internal/errors_controller.rb` | The catch-all |
+| `app/controllers/concerns/signed_request.rb` | The order of the four checks |
+| `app/models/staff_user.rb` | Groups and permissions |
+| `app/models/account.rb` | The status enum, and three attributes that cannot change |
+| `app/models/event.rb`, `account_daily_stat.rb` | Written by the seed, read by the handlers |
+| `app/models/enforcement_action.rb` | The reason rule and the one callback |
+| `app/models/audit_log.rb` | Append-only, and no PII in `details` |
+| `app/models/operational_mode.rb` | `current`, the newest row |
+| `app/models/signed_request_nonce.rb` | `remember` and `forget_expired` |
+| `app/models/idempotency_key.rb` | One stored answer |
+| `app/models/current.rb` | Two ids for the length of a request |
+| `app/services/account_enforcement.rb` | The shared steps of an enforcement action |
+| `app/services/suspend_account.rb`, `unsuspend_account.rb`, `mark_account_as_spam.rb` | Four answers each |
+| `app/services/idempotent_request.rb` | Run once, answer many times |
+| `app/services/record_pii_reveal.rb` | One audit row, field names only |
+| `app/services/change_operational_mode.rb` | The advisory lock |
+| `app/serializers/*.rb` | One hash per response, fields listed by hand |
+| `lib/request_signature.rb` | The signing scheme, with no Rails in it |
+| `lib/database_grants.rb` | Who may do what |
+| `lib/correlation_id.rb`, `lib/uuid.rb`, `lib/reason.rb` | Three small rules, each in one place |
+| `lib/tasks/grants.rake`, `seed_if_empty.rake` | Two commands |
+| `db/migrate/*.rb` | Nine migrations, one table each |
+| `db/seeds.rb`, `db/seeds/*.rb` | The demo data, deterministic |
+| `test/support/signed_request_helper.rb` | Signs a request inside a test |
+| `test/support/log_capture_helper.rb` | Reads what a request logged |
+
+## Known limits of this guide
+
+- The breakpoint procedure under "Debugging" was written from the `debug` gem's documented behavior. Exercise 5 is where I run it for the first time.
+- Everything else here was checked against the running code on 2026-09-30.

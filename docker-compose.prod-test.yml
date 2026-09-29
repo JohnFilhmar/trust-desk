@@ -1,0 +1,75 @@
+# Runs the PRODUCTION images on a development machine, to prove they boot
+# before anyone touches the server. It builds the images here and supplies
+# made-up values, so no env file is needed.
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod-test.yml up --build -d
+#   docker compose -f docker-compose.prod.yml -f docker-compose.prod-test.yml down -v
+#
+# EVERY VALUE BELOW IS MADE UP AND PROTECTS NOTHING. Never use this file on
+# the server.
+
+name: trust-desk-prod-test
+
+x-test-database: &test_database
+  DB_NAME: trust_desk_production
+  DB_TEST_NAME: trust_desk_test
+  DB_ADMIN_USERNAME: td_admin
+  DB_ADMIN_PASSWORD: dev-only-admin-not-a-secret
+  DB_CORE_API_USERNAME: td_core_api
+  DB_CORE_API_PASSWORD: dev-only-core-api-not-a-secret
+  DB_HANDLERS_USERNAME: td_handlers
+  DB_HANDLERS_PASSWORD: dev-only-handlers-not-a-secret
+
+x-test-rails: &test_rails
+  SECRET_KEY_BASE: dev-only-key-base-not-a-secret-0123456789abcdef0123456789abcdef
+  SERVICE_HMAC_SECRET: dev-only-hmac-not-a-secret-0123456789abcdef
+  DB_NAME: trust_desk_production
+  DB_CORE_API_USERNAME: td_core_api
+  DB_HANDLERS_USERNAME: td_handlers
+
+services:
+  mysql:
+    image: trust-desk-prod-test-mysql
+    build:
+      context: ./infra/mysql
+    environment:
+      <<: *test_database
+      MYSQL_ROOT_PASSWORD: dev-only-root-not-a-secret
+
+  migrate:
+    image: trust-desk-prod-test-core-api
+    build:
+      context: ./apps/core-api
+      target: prod
+    environment:
+      <<: *test_rails
+      DB_USERNAME: td_admin
+      DB_PASSWORD: dev-only-admin-not-a-secret
+
+  core-api:
+    image: trust-desk-prod-test-core-api
+    environment:
+      <<: *test_rails
+      DB_USERNAME: td_core_api
+      DB_PASSWORD: dev-only-core-api-not-a-secret
+
+  handlers:
+    image: trust-desk-prod-test-handlers
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: handlers_prod
+    environment:
+      APP_ORIGINS: http://localhost:18080
+      DB_NAME: trust_desk_production
+      DB_HANDLERS_USERNAME: td_handlers
+      DB_HANDLERS_PASSWORD: dev-only-handlers-not-a-secret
+      SERVICE_HMAC_SECRET: dev-only-hmac-not-a-secret-0123456789abcdef
+      SESSION_SECRET: dev-only-session-not-a-secret-0123456789abcdef
+
+  web:
+    image: trust-desk-prod-test-web
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: web_prod

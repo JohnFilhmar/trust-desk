@@ -2,13 +2,13 @@ import { demo_password } from "@trust-desk/shared";
 import { useMutation } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { Navigate, useLocation } from "react-router-dom";
-import { z } from "zod";
 import { DemoAccountsPanel } from "@/components/DemoAccountsPanel";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { LoginForm } from "@/components/LoginForm";
 import { SyntheticDataBanner } from "@/components/SyntheticDataBanner";
 import { ApiError } from "@/lib/api/apiError";
+import { readReturnPath } from "@/lib/navigation/readReturnPath";
 import { useSession } from "@/providers/SessionProvider";
 
 const genericRefusal = "The email or password is not correct.";
@@ -31,15 +31,6 @@ function describeRefusal(error: unknown): string | undefined {
   const wait =
     error.retryAfterSeconds === 1 ? "1 second" : `${error.retryAfterSeconds} seconds`;
   return `Too many sign-in attempts. Wait ${wait}, then try again.`;
-}
-
-const returnStateSchema = z.object({
-  returnPath: z.string().regex(/^\/(?!\/)/),
-});
-
-function readReturnPath(state: unknown): string {
-  const parsed = returnStateSchema.safeParse(state);
-  return parsed.success ? parsed.data.returnPath : "/accounts";
 }
 
 /**

@@ -94,14 +94,16 @@ The goal is Phases 0 to 2, working end to end in Docker with every test passing.
 - **No `.env` file from the agent.** Development values go straight into the Compose file for the development environment. I create the real env file myself before production.
 - **Generated Rails credentials files:** keep `config/master.key` and `config/credentials.yml.enc`, both unused. Delete neither. `master.key` stays out of git.
 
-## Proposals, not locked yet
+## Proposals, built and waiting for my yes
 
-Build each one as written. I confirm or change it when I review the pull request named.
+Each one is built as written. I confirm or change it when I review the Phase 2 pull request. Until then it is not locked.
 
-- **Operational mode effects** (Phase 2): `elevated` lowers the score at which search flags an account; `lockdown` refuses unsuspend. Each mode must change one behavior a test can observe.
-- **Search by PII fields** (Phase 2): only `analyst` and `enforcer` may search by email, IP or fingerprint. `viewer` searches by status and risk band.
-- **Reason on PII reveal** (Phase 2): open. Raise it in the design note with your recommendation and build the recommendation.
-- **Who writes the PII-reveal audit row** (council): the handlers with a narrow INSERT grant, or Rails through a signed call.
+- **Operational mode effects:** `elevated` lowers the review threshold from 60 to 40 and shows a banner. `lockdown` does the same and refuses unsuspend with `blocked_by_lockdown`. Rails enforces the refusal.
+- **Search by PII fields:** only `analyst` and `enforcer` may search by email, IP or fingerprint. A `viewer` who tries gets 403, not an empty list.
+- **Reason on PII reveal:** required, 10 to 500 characters, the same rule as enforcement.
+- **Who writes the PII-reveal audit row:** Rails, through a signed call, per ADR 005. The gap that remains is stated in that ADR.
+- **ADR 001, raw SQL with `mysql2`:** decided by a council, provisional.
+- **The list shows a quick risk score, the account page the full one.** See the Phase 2 design note.
 
 ## Stack
 
@@ -187,6 +189,19 @@ Each one was hit for real on 2026-09-30. The error text is what the tool printed
 - **Minitest 6 ships no `stub`.** A test that needs a method to fail uses a small subclass that overrides it.
 - **A Ruby reader named `method` replaces `Object#method`.** `RequestSignature` names its reader `http_method`.
 - **`mysql2` hands `SUM()` back as text and `COUNT()` as a number.** Row schemas use `z.coerce.number()` for both.
+- **`crypto.randomUUID` does not exist on a plain HTTP origin.** Browsers expose it only on HTTPS and on localhost. The console showed `crypto.randomUUID is not a function` at `http://web:5173`. Use `createUuid` from `apps/web/src/lib/ids/createUuid.ts`. See bug 002.
+- **An in-memory mount belongs to root.** With a read-only filesystem and a non-root user, Rails failed with `Permission denied @ dir_s_mkdir - /app/tmp/cache`. The `tmpfs` entries in `docker-compose.prod.yml` carry `uid=1001,gid=1001`. See bug 003.
+- **Run the production images locally before every deploy.** Both bugs above appear only in the hardened image. `infra/scripts/check_production_images.sh` runs 18 checks against them.
+- **Never build the same image tag from two commands at once.** Docker answered `image "trust-desk-prod-test-handlers:latest": already exists` and the Compose build failed.
+- **Playwright matches a button name as a substring unless told `exact: true`.** "Suspend account" matched "Unsuspend account".
+- **A `<select>` inside a section puts every option's text in that section.** Assert on the list of results, not on the section.
+- **With `prepared_statements: true`, Ruby 4.0.7 with mysql2 0.5.7 crashed:** `[BUG] Segmentation fault`. They stay off. The cost is that the mysql2 adapter writes values into the SQL text, so at debug level the log holds them.
+- **That crash left the test database half built.** The next run failed with `ActiveRecord::NoEnvironmentInSchemaError`. `bin/rails db:environment:set RAILS_ENV=test` fixed it.
+- **MySQL reorders the keys of a JSON column.** A stored answer comes back equal as JSON and different as text. Compare parsed bodies.
+- **During a test Rails hands every caller the same database connection.** A lock taken through the pool does not block the code under test. The advisory lock test opens its own connection.
+- **`Rails.logger.tagged("x") { ... }` runs its block once per logger in a broadcast.** No code here uses the block form.
+- **The symbol `:ip` in `filter_parameters` also filters `description`,** since it matches any key containing `ip`. The filter is the pattern `/(\A|_)ip\z/`.
+- **The production handlers image took 11 minutes 28 seconds to install 28 packages,** against 18 seconds in development. The cause is not known yet. Allow for it when building images before a deploy.
 - **A MariaDB dump starts with a sandbox comment that the MariaDB client understands.** `db/structure.sql` is written and loaded by the same client, so it works. Loading it with Oracle's `mysql` client has not been tried.
 
 ## Traps not yet verified
@@ -221,7 +236,9 @@ Verified commands only. Each one below was run on 2026-09-30 and worked. Run the
 | Seed data, and reset demo data | `dc run --rm migrate bin/rails db:seed` |
 | Seed only when empty | runs by itself on `up`, as part of the `migrate` service |
 | Rewrite the signing test vectors | `dc run --rm install node packages/shared/scripts/generate_signing_vectors.mjs` |
-| Deploy | TBD, see `docs/deploy-runbook.md` |
+| Reset before and after the end-to-end tests | `dc run --rm migrate bin/rails db:seed` |
+| Check the production images | start them as the header of `infra/scripts/check_production_images.sh` says, then `sh infra/scripts/check_production_images.sh` |
+| Deploy | not run yet. Steps in `docs/deploy-runbook.md` |
 
 Anything that migrates or tests runs in the `migrate` service, because it connects as the admin user. The `core-api` service connects as the runtime user, which cannot create a table.
 

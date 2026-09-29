@@ -1,4 +1,9 @@
 import { expect, test } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+
+function suspend_button(page: Page): Locator {
+  return page.getByRole("button", { name: "Suspend account", exact: true });
+}
 
 // The walking skeleton, end to end: browser, handlers, the signed call,
 // Rails, MySQL, and back. Each run suspends a different account, so the
@@ -27,7 +32,7 @@ test("an enforcer suspends an account and the audit trail records it @critical",
   await expect(page).toHaveURL(/\/accounts\/\d+$/);
   const account_url = page.url();
 
-  await page.getByRole("button", { name: "Suspend account" }).click();
+  await suspend_button(page).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
 
@@ -41,7 +46,10 @@ test("an enforcer suspends an account and the audit trail records it @critical",
 
   await expect(dialog).toBeHidden();
   await expect(page.getByText(reason)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Suspend account" })).toHaveCount(0);
+  // `exact`, because "Unsuspend account" contains "suspend account", and
+  // that button appears the moment the suspension worked.
+  await expect(suspend_button(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Unsuspend account", exact: true })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Audit trail" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Audit trail" })).toBeVisible();
@@ -52,7 +60,7 @@ test("an enforcer suspends an account and the audit trail records it @critical",
   // A reload proves the suspension is in the database, not only on the screen.
   await page.goto(account_url);
   await expect(page.getByText(reason)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Suspend account" })).toHaveCount(0);
+  await expect(suspend_button(page)).toHaveCount(0);
 });
 
 test("a viewer sees accounts and is offered no way to suspend one @critical", async ({
@@ -65,7 +73,8 @@ test("a viewer sees accounts and is offered no way to suspend one @critical", as
 
   await page.getByRole("table").getByRole("link").first().click();
   await expect(page).toHaveURL(/\/accounts\/\d+$/);
-  await expect(page.getByRole("button", { name: "Suspend account" })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Risk signals" })).toBeVisible();
+  await expect(suspend_button(page)).toHaveCount(0);
 
   // The missing button is a courtesy. The server is what refuses.
   const account_id = page.url().split("/").at(-1);
