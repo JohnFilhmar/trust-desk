@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { risk_summary_schema } from "./risk.ts";
 
 export const account_status_schema = z.enum(["active", "suspended"]);
 export type AccountStatus = z.infer<typeof account_status_schema>;
@@ -29,19 +30,33 @@ export const account_schema = z.object({
 export type Account = z.infer<typeof account_schema>;
 
 /** The row shown in search results. */
-export const account_summary_schema = account_schema.pick({
-  id: true,
-  email: true,
-  status: true,
-  plan: true,
-  spam_marked_at: true,
-  created_at: true,
-});
+export const account_summary_schema = account_schema
+  .pick({
+    id: true,
+    email: true,
+    status: true,
+    plan: true,
+    spam_marked_at: true,
+    created_at: true,
+  })
+  .extend({ risk: risk_summary_schema });
 export type AccountSummary = z.infer<typeof account_summary_schema>;
 
-/** Query string of `GET /api/accounts`. Every value arrives as text. */
+/** A value to search PII by. Two characters at least, so a search cannot list everyone. */
+const pii_term_schema = z.string().trim().min(2).max(100);
+
+/**
+ * Query string of `GET /api/accounts`. Every value arrives as text.
+ * `email`, `ip` and `fingerprint` need the permission `accounts.search_pii`.
+ */
 export const account_search_query_schema = z.object({
   status: account_status_schema.optional(),
+  /** Any part of the email address. */
+  email: pii_term_schema.optional(),
+  /** The whole signup IP. */
+  ip: pii_term_schema.optional(),
+  /** The whole device fingerprint. */
+  fingerprint: pii_term_schema.optional(),
   cursor: z.string().min(1).max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
 });

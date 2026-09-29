@@ -1,0 +1,10 @@
+{
+  "operational_mode": {
+    "id": 2,
+    "mode": "elevated",
+    "reason": "Signup burst from one network in the last hour.",
+    "staff_user_id": 3,
+    "created_at": "2026-09-30T01:02:03.456789Z"
+  },
+  "audit_log_id": 8
+}

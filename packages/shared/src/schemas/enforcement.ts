@@ -35,6 +35,11 @@ export type EnforcementRequest = z.infer<typeof enforcement_request_schema>;
  */
 export const internal_enforcement_request_schema = enforcement_request_schema.extend({
   actor_staff_user_id: z.number().int().positive(),
+  /**
+   * The `Idempotency-Key` header the browser sent, or null when it sent
+   * none. It sits in the body so that the signature covers it.
+   */
+  idempotency_key: z.uuid().nullable(),
 });
 export type InternalEnforcementRequest = z.infer<
   typeof internal_enforcement_request_schema
