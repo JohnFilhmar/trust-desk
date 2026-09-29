@@ -1,0 +1,9 @@
+# Every text file is stored and checked out with LF line endings.
+# Windows Git would otherwise write CRLF, and a Linux container cannot run
+# a script such as bin/rails whose first line ends in a carriage return.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary

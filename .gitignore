@@ -1,0 +1,33 @@
+# Secrets. The real env file is created by hand and never committed.
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+coverage/
+.pnpm-store/
+*.tsbuildinfo
+
+# Playwright
+e2e/test-results/
+e2e/playwright-report/
+
+# Rails. `rails new --skip-git` writes no .gitignore, so these are by hand.
+apps/core-api/config/master.key
+apps/core-api/log/*
+apps/core-api/tmp/*
+apps/core-api/storage/*
+!apps/core-api/log/.keep
+!apps/core-api/tmp/.keep
+!apps/core-api/storage/.keep
+apps/core-api/.bundle/
+apps/core-api/vendor/bundle/
+
+# Editors and tools
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

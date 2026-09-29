@@ -1,0 +1,12 @@
+# gitleaks reads this file in CI.
+# It keeps every default rule and adds one exception.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Made-up development and CI values. Each one says so in its own text."
+regexes = [
+  '''dev-only-[a-z0-9-]*not-a-secret[a-z0-9-]*''',
+  '''ci-only-not-a-secret''',
+]

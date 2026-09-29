@@ -1,0 +1,13 @@
+.git
+.claude
+**/node_modules
+.pnpm-store
+**/dist
+**/coverage
+.env
+.env.*
+!.env.example
+apps/core-api
+docs
+e2e/test-results
+e2e/playwright-report
