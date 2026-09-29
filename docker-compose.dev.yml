@@ -66,7 +66,7 @@ services:
     build:
       context: ./apps/core-api
       target: dev
-    command: ["bin/rails", "db:prepare", "db:grants"]
+    command: ["bin/rails", "db:prepare", "db:grants", "db:seed_if_empty"]
     environment:
       <<: [*database, *admin_user]
       RAILS_ENV: development
@@ -169,7 +169,8 @@ services:
     volumes: *node_volumes
     ports:
       # Bound to this machine only. Nothing on the network can reach it.
-      - "127.0.0.1:5173:5173"
+      # WEB_PORT lets a second copy of the stack run beside the first.
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     depends_on:
       handlers:
         condition: service_healthy
