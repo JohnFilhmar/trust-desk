@@ -1,4 +1,5 @@
-# What: the accounts every test starts with, one active and one suspended.
+# What: the accounts every test starts with: one active, one suspended and
+#   one marked as spam.
 # Convention: a YAML file in test/fixtures/ named after a table. A test reads
 #   a row with accounts(:active_account).
 # Closest equivalent: a Django fixture, a seed file that a Jest global setup
@@ -6,7 +7,8 @@
 #
 # signup_context is a JSON column. It is written as a YAML mapping, which
 # Rails stores as a JSON object. The data is synthetic: the emails are on
-# example.com and the IPs are in the documentation ranges of RFC 5737.
+# example.com or example.org and the IPs are in the documentation ranges of
+# RFC 5737.
 
 active_account:
   email: fixture-active@example.com
@@ -29,3 +31,15 @@ suspended_account:
     user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) Safari/605.1.15"
     device_fingerprint: "a1b2c3d4e5f60718293a4b5c6d7e8f90"
     referral: partner-blog
+
+marked_account:
+  email: fixture-marked@example.org
+  status: active
+  plan: free
+  spam_marked_at: 2026-09-20 10:00:00
+  signup_context:
+    ip: "203.0.113.30"
+    country: BR
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0 Safari/537.36"
+    device_fingerprint: "c0ffee00c0ffee00c0ffee00c0ffee00"
+    referral:

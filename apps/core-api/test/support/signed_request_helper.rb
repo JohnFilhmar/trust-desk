@@ -1,5 +1,5 @@
 # What: helpers that sign a request the way the handlers do, and that check
-#   the error envelope, so the request tests stay short.
+#   the shape of a response, so the request tests stay short.
 # Convention: Rails has no folder for test helpers. This app uses
 #   test/support/. Nothing autoloads it, so test/test_helper.rb requires
 #   every file in it and mixes this module into the request tests.
@@ -7,6 +7,8 @@
 
 module SignedRequestHelper
   UUID_FORMAT = /\A\h{8}-\h{4}-[1-8]\h{3}-[89ab]\h{3}-\h{12}\z/
+  # UTC with six fractional digits and a Z.
+  TIMESTAMP_FORMAT = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\z/
 
   # Builds the headers of a signed request.
   #
@@ -57,5 +59,25 @@ module SignedRequestHelper
     assert_match UUID_FORMAT, body["error"]["correlation_id"]
     assert_kind_of String, body["error"]["message"]
     assert_not_empty body["error"]["message"]
+  end
+
+  # Checks that the body has the keys and the types of a shared fixture,
+  # key for key.
+  def assert_body_matches_fixture(fixture_name)
+    assert_equal shape_of(shared_fixture(fixture_name)), shape_of(response.parsed_body.to_h)
+  end
+
+  # Replaces every value by the name of its type and keeps the keys, so
+  # two bodies can be compared key for key without comparing values.
+  def shape_of(value)
+    case value
+    when Hash
+      # to_h with a block builds a new hash from the pairs the block returns.
+      value.to_h { |key, inner| [ key.to_s, shape_of(inner) ] }
+    when Integer then "integer"
+    when String then "string"
+    when nil then "null"
+    else value.class.name
+    end
   end
 end

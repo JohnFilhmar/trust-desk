@@ -7,9 +7,11 @@
 require "test_helper"
 
 # Rails does not autoload db/, so the files are loaded by path.
-%w[synthetic clock demo_staff_users account_plan event_plan daily_stats_plan].each do |name|
-  require Rails.root.join("db/seeds", name).to_s
-end
+SEED_FILES = %w[
+  synthetic clock reset demo_staff_users
+  account_plan event_plan daily_stats_plan enforcement_plan
+].freeze
+SEED_FILES.each { |name| require Rails.root.join("db/seeds", name).to_s }
 
 class SeedsTest < ActiveSupport::TestCase
   SEED = 20260930
@@ -226,6 +228,72 @@ class SeedsTest < ActiveSupport::TestCase
     assert_equal [ 1 ], early.map { |row| row[:days_ago] }.uniq
   end
 
+  test "eight cluster accounts are suspended and four phishing accounts are marked as spam" do
+    enforcement = plans.fetch(:enforcement)
+    profiles = plans.fetch(:accounts).to_h { |account| [ account[:id], account[:profile] ] }
+    suspended = enforcement.select { |action| action[:action_type] == "suspend" }
+    marked = enforcement.select { |action| action[:action_type] == "mark_spam" }
+
+    assert_equal 12, enforcement.size
+    assert_equal 8, suspended.size
+    assert_equal 4, marked.size
+    # No account is acted on twice.
+    assert_equal 12, enforcement.map { |action| action[:account_id] }.uniq.size
+
+    suspended_profiles = suspended.map { |action| profiles.fetch(action[:account_id]) }.uniq.sort
+    assert_equal %i[card_tester fingerprint_ring miner signup_burst], suspended_profiles
+    assert_equal [ :phisher ], marked.map { |action| profiles.fetch(action[:account_id]) }.uniq
+  end
+
+  test "every seeded action has a reason the rule accepts and a correlation id that is a UUID" do
+    plans.fetch(:enforcement).each do |action|
+      assert_equal action[:reason], Reason.clean!(action[:reason])
+      assert Uuid.valid?(action[:correlation_id]), action[:correlation_id]
+      assert_includes EnforcementAction::ACTION_TYPES, action[:action_type]
+      assert_no_match ANY_EMAIL, action[:reason]
+      assert_no_match ANY_IP, action[:reason]
+    end
+
+    ids = plans.fetch(:enforcement).map { |action| action[:correlation_id] }
+    assert_equal ids.size, ids.uniq.size
+  end
+
+  test "every seeded action comes after the signup, within the last three days" do
+    accounts = plans.fetch(:accounts).index_by { |account| account[:id] }
+
+    plans.fetch(:enforcement).each do |action|
+      assert_operator action[:days_ago], :<, accounts.fetch(action[:account_id])[:days_ago]
+      assert_includes [ 0, 1, 2 ], action[:days_ago]
+    end
+
+    assert_operator plans.fetch(:enforcement).map { |action| action[:days_ago] }.uniq.size, :>=, 2
+  end
+
+  test "a phishing account is marked after its abuse reports came in" do
+    marked = plans.fetch(:enforcement).select { |action| action[:action_type] == "mark_spam" }
+
+    marked.each do |action|
+      reports = plans.fetch(:events).select do |event|
+        event[:account_id] == action[:account_id] && event[:event_type] == "abuse_report"
+      end
+
+      assert_not_empty reports
+      reports.each do |report|
+        # An array compares element by element, so this reads: an earlier
+        # day, or the same day and an earlier moment.
+        report_moment = [ -report[:days_ago], report[:fraction] ]
+        action_moment = [ -action[:days_ago], action[:fraction] ]
+        assert_equal(-1, report_moment <=> action_moment)
+      end
+    end
+  end
+
+  test "the reset empties every table of the app" do
+    app_tables = ActiveRecord::Base.connection.tables - %w[schema_migrations ar_internal_metadata]
+
+    assert_equal app_tables.sort, Seeds::Reset::TABLES.sort
+  end
+
   test "the clock never dates anything in the future" do
     now = Time.utc(2026, 9, 30, 0, 0, 30)
     clock = Seeds::Clock.new(now)
@@ -254,8 +322,9 @@ class SeedsTest < ActiveSupport::TestCase
     accounts = account_plan.build
     events = Seeds::EventPlan.new(rng, accounts, account_plan.spare_ips).build
     stats = Seeds::DailyStatsPlan.new(accounts, events).build
+    enforcement = Seeds::EnforcementPlan.new(rng, accounts).build
 
-    { accounts: accounts, events: events, stats: stats }
+    { accounts: accounts, events: events, stats: stats, enforcement: enforcement }
   end
 
   def accounts_with_profile(profile)

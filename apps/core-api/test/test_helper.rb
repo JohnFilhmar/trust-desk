@@ -40,5 +40,7 @@ module ActionDispatch
   class IntegrationTest
     # Adds signed_post and assert_error_envelope to every request test.
     include SignedRequestHelper
+    # Adds capture_log.
+    include LogCaptureHelper
   end
 end

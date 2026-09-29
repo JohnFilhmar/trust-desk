@@ -65,6 +65,17 @@ module Seeds
       format("%032x", rng.rand(2**128))
     end
 
+    # A version 4 UUID drawn from the seeded generator, so it is the same on
+    # every run. SecureRandom.uuid would give a new one each time.
+    # `hex[0, 8]` is 8 characters starting at position 0. The 4 is the
+    # version, and the 8, 9, a or b after the third dash is the variant.
+    def uuid(rng)
+      hex = format("%032x", rng.rand(2**128))
+      variant = pick(%w[8 9 a b], rng)
+
+      "#{hex[0, 8]}-#{hex[8, 4]}-4#{hex[13, 3]}-#{variant}#{hex[17, 3]}-#{hex[20, 12]}"
+    end
+
     # `sample` picks one element. `random:` makes it use the seeded generator.
     def pick(list, rng)
       list.sample(random: rng)

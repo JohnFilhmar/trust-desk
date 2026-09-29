@@ -17,6 +17,12 @@ Rails.application.routes.draw do
     # "accounts#suspend" means the method `suspend` of AccountsController.
     # `:account_id` is a path parameter and arrives in params[:account_id].
     post "accounts/:account_id/suspend", to: "accounts#suspend"
+    post "accounts/:account_id/unsuspend", to: "accounts#unsuspend"
+    post "accounts/:account_id/mark_spam", to: "accounts#mark_spam"
+
+    # The account of a reveal travels in the signed body, not in the path.
+    post "reveals", to: "reveals#create"
+    post "operational_modes", to: "operational_modes#create"
 
     # Catches every other path under /internal, whatever the HTTP method.
     # `*unmatched` takes the rest of the path, slashes included. It must

@@ -5,8 +5,12 @@
 #   controller, the service and MySQL.
 # Closest equivalent: a supertest e2e test in NestJS or Express.
 #
-# signed_post, signed_headers and assert_error_envelope come from
-# test/support/signed_request_helper.rb.
+# signed_post, signed_headers, assert_error_envelope and
+# assert_body_matches_fixture come from test/support/signed_request_helper.rb.
+#
+# The other two actions of the same controller have a file each:
+# accounts_unsuspend_test.rb and accounts_mark_spam_test.rb. What the three
+# share on idempotency keys is in accounts_idempotency_test.rb.
 
 require "test_helper"
 
@@ -14,7 +18,6 @@ module Internal
   class AccountsControllerTest < ActionDispatch::IntegrationTest
     REASON = "Twelve accounts share this fingerprint."
     WRITES = [ "EnforcementAction.count", "AuditLog.count" ].freeze
-    TIMESTAMP_FORMAT = /\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\z/
 
     setup do
       @account = accounts(:active_account)
@@ -56,7 +59,7 @@ module Internal
       signed_post @path, @body
 
       assert_response :created
-      assert_equal shape_of(shared_fixture("enforcement_result.json")), shape_of(response.parsed_body.to_h)
+      assert_body_matches_fixture "enforcement_result.json"
     end
 
     test "the success body holds no PII of the account" do
@@ -288,22 +291,6 @@ module Internal
       signed_post "/internal/accounts/999999999/suspend", @body, correlation_id: correlation_id
 
       assert_equal correlation_id, response.parsed_body.dig("error", "correlation_id")
-    end
-
-    private
-
-    # Replaces every value by the name of its type and keeps the keys, so
-    # two bodies can be compared key for key without comparing values.
-    def shape_of(value)
-      case value
-      when Hash
-        # to_h with a block builds a new hash from the pairs the block returns.
-        value.to_h { |key, inner| [ key.to_s, shape_of(inner) ] }
-      when Integer then "integer"
-      when String then "string"
-      when nil then "null"
-      else value.class.name
-      end
     end
   end
 end

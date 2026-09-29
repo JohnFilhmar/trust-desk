@@ -1,6 +1,6 @@
 # What: the parent of every controller the handlers call. It checks the
-#   signature, picks the correlation id and turns every failure into the one
-#   error envelope.
+#   signature, picks the correlation id, loads the acting staff user and
+#   turns every failure into the one error envelope.
 # Convention: a controller in app/controllers/internal/ lives in the module
 #   Internal, and its routes sit under /internal. Rails autoloads by path, so
 #   internal/base_controller.rb must define Internal::BaseController.
@@ -9,13 +9,13 @@
 #
 # The health check at /up does not inherit from this class, so it needs no
 # signature.
+#
+# Log lines written here hold ids and codes only. The correlation id is not
+# written into the message, because the log tag set in
+# config/application.rb already puts it in front of every line.
 
 module Internal
   class BaseController < ApplicationController
-    # Versions 1 to 8, the same rule zod applies in the handlers. `\h` is one
-    # hex digit.
-    UUID_FORMAT = /\A\h{8}-\h{4}-[1-8]\h{3}-[89abAB]\h{3}-\h{12}\z/
-
     # Every code this service can answer with, its HTTP status and the
     # sentence sent with it. The sentences are generic on purpose. The detail
     # goes to the log.
@@ -27,7 +27,12 @@ module Internal
       "account_not_found" => [ :not_found, "No account has that id." ],
       "not_found" => [ :not_found, "No such endpoint." ],
       "invalid_request" => [ :unprocessable_content, "The request body is missing a field or holds a bad value." ],
+      "idempotency_key_reused" => [ :unprocessable_content, "This idempotency key was used for another request." ],
       "already_suspended" => [ :conflict, "The account is already suspended." ],
+      "not_suspended" => [ :conflict, "The account is not suspended." ],
+      "blocked_by_lockdown" => [ :conflict, "Unsuspending is switched off while the mode is lockdown." ],
+      "already_marked_spam" => [ :conflict, "The account is already marked as spam." ],
+      "mode_unchanged" => [ :conflict, "That mode is already in force." ],
       "internal_error" => [ :internal_server_error, "Something went wrong. Nothing was changed." ]
     }.freeze
 
@@ -41,34 +46,56 @@ module Internal
     # from the bottom up, so the catch-all comes first and the specific
     # classes after it.
     rescue_from StandardError, with: :render_internal_error
-    # Raised for a body that is not valid JSON, and for a required field that
-    # is missing, blank or of the wrong shape.
+    # Raised for a body that is not valid JSON, for a required field that is
+    # missing, blank or of the wrong shape, and for a bad reason.
     rescue_from ActionDispatch::Http::Parameters::ParseError,
       ActionController::BadRequest,
       ActionController::ParameterMissing,
+      Reason::Invalid,
       with: :render_invalid_request
 
+    # Filters run in the order they are declared. This one comes before the
+    # signature check that SignedRequest adds, so a refused signature is
+    # answered with the same correlation id as everything else.
+    before_action :remember_correlation_id
     include SignedRequest
 
     private
 
     # The id that ties this request to the log lines of the browser and the
-    # handlers. The header is not covered by the signature and ends up in the
-    # log, so anything but a UUID is replaced.
+    # handlers. CorrelationId picked it when the log tag was built, and
+    # gives the same one here.
+    def remember_correlation_id
+      Current.correlation_id = CorrelationId.resolve(request)
+    end
+
     def correlation_id
-      # `||=` assigns only when the left side is nil, so the id is picked
-      # once per request and then reused.
-      @correlation_id ||= begin
-        sent = request.headers["X-Correlation-Id"].to_s
-        UUID_FORMAT.match?(sent) ? sent : SecureRandom.uuid
-      end
+      Current.correlation_id
+    end
+
+    # Loads the acting staff user and checks one permission. The id travels
+    # inside the signed body. The group is read from the database here, and
+    # a group sent by the caller would be ignored.
+    #
+    # A controller calls this from a before_action of its own, with the
+    # permission its actions need.
+    def load_actor_who_may(permission)
+      # find_by returns nil when no row matches, where find would raise.
+      # A variable starting with `@` belongs to this controller instance and
+      # is still there when the action runs.
+      @actor = StaffUser.find_by(id: params.expect(:actor_staff_user_id))
+      # `&.` calls the method only when the receiver is not nil.
+      Current.staff_user_id = @actor&.id
+
+      # nil counts as false, so a missing actor is refused too.
+      render_error("forbidden") unless @actor&.permission?(permission)
     end
 
     def render_error(code)
       # Destructuring: the first element goes to status, the second to message.
       status, message = ERRORS.fetch(code)
 
-      logger.warn("Answered with an error. code=#{code} correlation_id=#{correlation_id}")
+      logger.warn("Answered with an error. code=#{code} staff_user_id=#{Current.staff_user_id || 'none'}")
       render json: { error: { code: code, message: message, correlation_id: correlation_id } },
         status: status
     end
@@ -80,11 +107,7 @@ module Internal
     # The client gets the generic sentence. The class, the message and the
     # top of the stack trace go to the log.
     def render_internal_error(exception)
-      logger.error(
-        "Unexpected error. correlation_id=#{correlation_id} " \
-        "exception=#{exception.class} message=#{exception.message}"
-      )
-      # `&.` calls the method only when the receiver is not nil.
+      logger.error("Unexpected error. exception=#{exception.class} message=#{exception.message}")
       logger.error(exception.backtrace&.first(15)&.join("\n"))
 
       render_error("internal_error")

@@ -26,9 +26,10 @@ Rails.application.configure do
   config.assume_ssl = false
   config.force_ssl = false
 
-  # Log to STDOUT with the current request id as a default log tag.
-  config.log_tags = [ :request_id ]
-  config.logger   = ActiveSupport::TaggedLogging.logger(STDOUT)
+  # Log to STDOUT. The log tag is the correlation id, set for every
+  # environment in config/application.rb. A generated app sets
+  # `config.log_tags = [ :request_id ]` here, which would replace it.
+  config.logger = ActiveSupport::TaggedLogging.logger(STDOUT)
 
   # Change to "debug" to log everything (including potentially personally-identifiable information!).
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")

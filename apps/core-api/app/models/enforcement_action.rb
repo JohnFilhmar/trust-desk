@@ -8,7 +8,6 @@
 
 class EnforcementAction < ApplicationRecord
   ACTION_TYPES = %w[suspend unsuspend mark_spam].freeze
-  REASON_LENGTH = (10..500)
 
   belongs_to :account
   belongs_to :staff_user
@@ -19,7 +18,10 @@ class EnforcementAction < ApplicationRecord
   before_validation :strip_reason
 
   validates :action_type, presence: true, inclusion: { in: ACTION_TYPES }
-  validates :reason, presence: true, length: { in: REASON_LENGTH }
+  # The services check the reason first, with the same rule from
+  # lib/reason.rb. This is the second check, for code that builds a record
+  # without going through a service.
+  validates :reason, presence: true, length: { in: Reason::LENGTH }
   validates :correlation_id, presence: true
 
   # Everything below `private` can be called from inside this class only.

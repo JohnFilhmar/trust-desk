@@ -76,6 +76,29 @@ class AuditLogTest < ActiveSupport::TestCase
     assert audit_log.errors.include?(:details)
   end
 
+  test "the details of a reveal pass: the key is fields and the values are names" do
+    audit_log = new_audit_log(
+      action: "pii.reveal",
+      details: {
+        "fields" => %w[email signup_ip device_fingerprint user_agent],
+        "reason" => "Checking whether this signup matches the fraud report."
+      }
+    )
+
+    assert audit_log.valid?
+  end
+
+  test "an email stored under the key email is refused" do
+    audit_log = new_audit_log(
+      action: "pii.reveal",
+      details: { "fields" => %w[email], "email" => accounts(:active_account).email }
+    )
+
+    assert_not audit_log.valid?
+    assert audit_log.errors.include?(:details)
+    assert_raises(ActiveRecord::RecordInvalid) { audit_log.save! }
+  end
+
   test "details may not name a PII field" do
     %w[email ip device_fingerprint].each do |key|
       audit_log = new_audit_log(details: { key => "anything" })

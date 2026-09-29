@@ -44,5 +44,19 @@ module CoreApi
     # is Ruby and cannot describe a trigger, so the test database would be
     # built without the one that makes audit_logs append-only.
     config.active_record.schema_format = :sql
+
+    # Puts the correlation id in front of every log line of a request,
+    # Rails' own "Started" and "Completed" lines included.
+    #
+    # Each entry of log_tags is turned into one tag. An entry may be a
+    # lambda, which is a small function kept in a value. Rails calls it with
+    # the request at the very start, in the middleware Rails::Rack::Logger,
+    # before routing and before any controller. So the header is read and
+    # checked there, in lib/correlation_id.rb, and the controller later gets
+    # the same id from the same place.
+    #
+    # The constant CorrelationId is looked up when the lambda runs, not when
+    # this file is read, so it does not matter that lib/ is loaded later.
+    config.log_tags = [ ->(request) { "correlation_id=#{CorrelationId.resolve(request)}" } ]
   end
 end

@@ -1,5 +1,6 @@
 # What: prints what the seed wrote: the row counts, one account per cluster,
-#   and the accounts whose daily stats are incomplete.
+#   the accounts that were suspended or marked as spam, and the accounts
+#   whose daily stats are incomplete.
 # Convention: none. db/seeds.rb loads this file with require_relative.
 # Closest equivalent: the console output at the end of a TypeScript seed
 #   script.
@@ -11,7 +12,8 @@ module Seeds
   module Summary
     MODELS = [
       StaffUser, Account, Event, AccountDailyStat,
-      EnforcementAction, AuditLog, OperationalMode, SignedRequestNonce
+      EnforcementAction, AuditLog, OperationalMode, SignedRequestNonce,
+      IdempotencyKey
     ].freeze
 
     CLUSTER_LABELS = {
@@ -25,7 +27,7 @@ module Seeds
 
     module_function
 
-    def print(accounts, digest:, seconds:)
+    def print(accounts, enforcement, digest:, seconds:)
       puts "Seed finished in #{seconds.round(1)} seconds. Data digest: #{digest}"
       puts
       puts "Rows per table"
@@ -41,7 +43,27 @@ module Seeds
       puts
       print_clusters(accounts)
       puts
+      print_enforcement(accounts, enforcement)
+      puts
       print_incomplete_stats(accounts)
+    end
+
+    def print_enforcement(accounts, enforcement)
+      emails = accounts.to_h { |account| [ account[:id], account[:email] ] }
+      # partition splits a list in two: the items the block accepts, and
+      # the rest.
+      suspensions, marks = enforcement.partition { |action| action[:action_type] == "suspend" }
+
+      puts "Accounts the seed suspended (#{suspensions.size})"
+      print_actions(suspensions, emails)
+      puts "Accounts the seed marked as spam (#{marks.size})"
+      print_actions(marks, emails)
+    end
+
+    def print_actions(actions, emails)
+      actions.sort_by { |action| emails.fetch(action[:account_id]) }.each do |action|
+        puts "  id #{action[:account_id]}  #{emails.fetch(action[:account_id])}"
+      end
     end
 
     def print_clusters(accounts)

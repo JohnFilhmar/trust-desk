@@ -8,9 +8,12 @@
 
 module Seeds
   module Reset
+    # Every table of the app. A test compares this list with the database,
+    # so a new table cannot be forgotten here.
     TABLES = %w[
       account_daily_stats events enforcement_actions audit_logs
-      operational_modes signed_request_nonces accounts staff_users
+      operational_modes signed_request_nonces idempotency_keys
+      accounts staff_users
     ].freeze
 
     # Makes the method callable on the module itself: Seeds::Reset.truncate_all!

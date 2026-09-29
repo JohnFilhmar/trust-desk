@@ -11,7 +11,7 @@ class OperationalMode < ApplicationRecord
   belongs_to :staff_user
 
   validates :mode, presence: true, inclusion: { in: MODES }
-  validates :reason, presence: true
+  validates :reason, presence: true, length: { in: Reason::LENGTH }
 
   # `def self.` defines a method on the class: OperationalMode.current.
   # Two rows can share a created_at, so the id breaks the tie.
