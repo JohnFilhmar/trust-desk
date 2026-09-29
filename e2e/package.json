@@ -1,0 +1,14 @@
+{
+  "name": "@trust-desk/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"End-to-end tests run with: pnpm --filter @trust-desk/e2e run e2e\"",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}
