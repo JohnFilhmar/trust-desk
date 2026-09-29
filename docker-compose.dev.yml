@@ -1,0 +1,197 @@
+# Development stack. Start everything with:
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# EVERY VALUE BELOW THAT LOOKS LIKE A SECRET IS MADE UP AND PROTECTS NOTHING.
+# They exist so the stack starts on a fresh clone with no setup. Production
+# reads its values from an env file that is created by hand on the server
+# and is never committed. See .env.example for the list.
+
+name: trust-desk-dev
+
+x-database: &database
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  DB_NAME: trust_desk_development
+  DB_TEST_NAME: trust_desk_test
+
+x-admin-user: &admin_user
+  DB_USERNAME: td_admin
+  DB_PASSWORD: dev-only-admin-not-a-secret
+
+x-service-secret: &service_secret
+  SERVICE_HMAC_SECRET: dev-only-hmac-not-a-secret-0123456789abcdef
+
+x-node-volumes: &node_volumes
+  - .:/repo
+  # node_modules live in volumes, not on the Windows disk. pnpm builds them
+  # from symlinks, which a Windows bind mount handles slowly and badly.
+  - node_modules_root:/repo/node_modules
+  - node_modules_handlers:/repo/apps/handlers/node_modules
+  - node_modules_web:/repo/apps/web/node_modules
+  - node_modules_shared:/repo/packages/shared/node_modules
+  - node_modules_e2e:/repo/e2e/node_modules
+  - pnpm_store:/repo/.pnpm-store
+
+services:
+  mysql:
+    build:
+      context: ./infra/mysql
+    environment:
+      <<: *database
+      MYSQL_ROOT_PASSWORD: dev-only-root-not-a-secret
+      DB_ADMIN_USERNAME: td_admin
+      DB_ADMIN_PASSWORD: dev-only-admin-not-a-secret
+      DB_CORE_API_USERNAME: td_core_api
+      DB_CORE_API_PASSWORD: dev-only-core-api-not-a-secret
+      DB_HANDLERS_USERNAME: td_handlers
+      DB_HANDLERS_PASSWORD: dev-only-handlers-not-a-secret
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # 127.0.0.1 forces TCP. While the image is still running its first-time
+      # setup, MySQL listens on a socket only, so this check keeps failing
+      # until the real server is up.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Runs once and exits. Creates the schema, applies the grants and loads the
+  # seed, as the admin user. The two services below wait for it to succeed.
+  migrate:
+    build:
+      context: ./apps/core-api
+      target: dev
+    command: ["bin/rails", "db:prepare", "db:grants"]
+    environment:
+      <<: [*database, *admin_user]
+      RAILS_ENV: development
+      DB_CORE_API_USERNAME: td_core_api
+      DB_HANDLERS_USERNAME: td_handlers
+    volumes:
+      - ./apps/core-api:/app
+    depends_on:
+      mysql:
+        condition: service_healthy
+    mem_limit: 512m
+    restart: "no"
+
+  core-api:
+    build:
+      context: ./apps/core-api
+      target: dev
+    # A pid file left by a stopped container would stop Puma from starting.
+    command: ["sh", "-c", "rm -f tmp/pids/server.pid && bin/rails server -b 0.0.0.0 -p 3000"]
+    environment:
+      <<: [*database, *service_secret]
+      RAILS_ENV: development
+      DB_USERNAME: td_core_api
+      DB_PASSWORD: dev-only-core-api-not-a-secret
+      # The admin user, for running the test suite from this container.
+      DB_ADMIN_USERNAME: td_admin
+      DB_ADMIN_PASSWORD: dev-only-admin-not-a-secret
+    volumes:
+      - ./apps/core-api:/app
+    # No `ports`. Rails is reachable only from other containers.
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "ruby", "-rnet/http", "-e", "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/up')).is_a?(Net::HTTPSuccess) ? 0 : 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Runs once and exits. Fills the node_modules volumes from the lockfile.
+  install:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: dev
+    command: ["pnpm", "install", "--frozen-lockfile", "--store-dir", "/repo/.pnpm-store"]
+    volumes: *node_volumes
+    mem_limit: 2g
+    restart: "no"
+
+  handlers:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: dev
+    working_dir: /repo/apps/handlers
+    command: ["node", "--watch", "src/server.ts"]
+    environment:
+      <<: [*database, *service_secret]
+      NODE_ENV: development
+      HANDLERS_PORT: "8787"
+      LOG_LEVEL: debug
+      APP_ORIGIN: http://localhost:5173
+      DB_HANDLERS_USERNAME: td_handlers
+      DB_HANDLERS_PASSWORD: dev-only-handlers-not-a-secret
+      CORE_API_URL: http://core-api:3000
+      SESSION_SECRET: dev-only-session-not-a-secret-0123456789abcdef
+    volumes: *node_volumes
+    depends_on:
+      install:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    mem_limit: 256m
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/node.Dockerfile
+      target: dev
+    working_dir: /repo/apps/web
+    command: ["pnpm", "run", "dev"]
+    environment:
+      HANDLERS_URL: http://handlers:8787
+    volumes: *node_volumes
+    ports:
+      # Bound to this machine only. Nothing on the network can reach it.
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      handlers:
+        condition: service_healthy
+    mem_limit: 768m
+    restart: unless-stopped
+
+  # Not started by `up`. Run the smoke test with:
+  #   docker compose -f docker-compose.dev.yml run --rm e2e
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble
+    profiles: ["e2e"]
+    working_dir: /repo/e2e
+    command: ["node_modules/.bin/playwright", "test"]
+    environment:
+      BASE_URL: http://web:5173
+      CI: "true"
+    volumes: *node_volumes
+    depends_on:
+      web:
+        condition: service_started
+    mem_limit: 2g
+
+volumes:
+  mysql_data:
+  node_modules_root:
+  node_modules_handlers:
+  node_modules_web:
+  node_modules_shared:
+  node_modules_e2e:
+  pnpm_store:

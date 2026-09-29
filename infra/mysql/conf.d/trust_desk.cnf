@@ -1,0 +1,18 @@
+# Server settings for MySQL 8.4, sized for a small shared server.
+
+[mysqld]
+# Binary logging is on by default. It is only needed for replication and
+# point-in-time recovery, which this demo has neither of. With it on, MySQL
+# refuses to let a user without elevated privileges create a trigger.
+disable_log_bin
+
+# Memory. The defaults assume a machine that belongs to MySQL alone.
+innodb_buffer_pool_size = 96M
+innodb_log_buffer_size = 8M
+performance_schema = OFF
+max_connections = 40
+table_open_cache = 200
+
+character_set_server = utf8mb4
+collation_server = utf8mb4_0900_ai_ci
+default_time_zone = "+00:00"
