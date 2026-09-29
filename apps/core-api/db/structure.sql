@@ -52,7 +52,7 @@ CREATE TABLE `accounts` (
   KEY `index_accounts_on_created_at_and_id` (`created_at`,`id`),
   KEY `index_accounts_on_signup_ip` (`signup_ip`),
   KEY `index_accounts_on_signup_fingerprint` (`signup_fingerprint`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1048242878 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `ar_internal_metadata`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -83,7 +83,7 @@ CREATE TABLE `audit_logs` (
   KEY `index_audit_logs_on_account_id_and_created_at_and_id` (`account_id`,`created_at`,`id`),
   CONSTRAINT `fk_rails_0ee1f51acc` FOREIGN KEY (`staff_user_id`) REFERENCES `staff_users` (`id`),
   CONSTRAINT `fk_rails_4074d8a0f4` FOREIGN KEY (`account_id`) REFERENCES `accounts` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!50003 SET @saved_cs_client      = @@character_set_client */ ;
 /*!50003 SET @saved_cs_results     = @@character_set_results */ ;
@@ -94,8 +94,7 @@ CREATE TABLE `audit_logs` (
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,NO_AUTO_VALUE_ON_ZERO,STRICT_TRANS_TABLES,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`td_admin`@`%`*/ /*!50003 TRIGGER `audit_logs_reject_update` BEFORE UPDATE ON `audit_logs` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only: UPDATE is not allowed'
- /*application='CoreApi'*/ */;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`td_admin`@`%`*/ /*!50003 TRIGGER `audit_logs_reject_update` BEFORE UPDATE ON `audit_logs` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only: UPDATE is not allowed' */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -110,8 +109,7 @@ DELIMITER ;
 /*!50003 SET @saved_sql_mode       = @@sql_mode */ ;
 /*!50003 SET sql_mode              = 'ONLY_FULL_GROUP_BY,NO_AUTO_VALUE_ON_ZERO,STRICT_TRANS_TABLES,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION' */ ;
 DELIMITER ;;
-/*!50003 CREATE*/ /*!50017 DEFINER=`td_admin`@`%`*/ /*!50003 TRIGGER `audit_logs_reject_delete` BEFORE DELETE ON `audit_logs` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only: DELETE is not allowed'
- /*application='CoreApi'*/ */;;
+/*!50003 CREATE*/ /*!50017 DEFINER=`td_admin`@`%`*/ /*!50003 TRIGGER `audit_logs_reject_delete` BEFORE DELETE ON `audit_logs` FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit_logs is append-only: DELETE is not allowed' */;;
 DELIMITER ;
 /*!50003 SET sql_mode              = @saved_sql_mode */ ;
 /*!50003 SET character_set_client  = @saved_cs_client */ ;
@@ -134,7 +132,7 @@ CREATE TABLE `enforcement_actions` (
   KEY `index_enforcement_actions_on_account_id_and_created_at_and_id` (`account_id`,`created_at`,`id`),
   CONSTRAINT `fk_rails_859d956bc7` FOREIGN KEY (`account_id`) REFERENCES `accounts` (`id`),
   CONSTRAINT `fk_rails_d3c45d9377` FOREIGN KEY (`staff_user_id`) REFERENCES `staff_users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `events`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -154,6 +152,25 @@ CREATE TABLE `events` (
   CONSTRAINT `fk_rails_17c5f28626` FOREIGN KEY (`account_id`) REFERENCES `accounts` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `idempotency_keys`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `idempotency_keys` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `key` varchar(36) NOT NULL,
+  `staff_user_id` bigint NOT NULL,
+  `request_path` varchar(255) NOT NULL,
+  `request_hash` varchar(64) NOT NULL,
+  `response_status` int NOT NULL,
+  `response_body` json NOT NULL,
+  `created_at` datetime(6) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `index_idempotency_keys_on_key` (`key`),
+  KEY `index_idempotency_keys_on_staff_user_id` (`staff_user_id`),
+  KEY `index_idempotency_keys_on_created_at` (`created_at`),
+  CONSTRAINT `fk_rails_1af966f1f8` FOREIGN KEY (`staff_user_id`) REFERENCES `staff_users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `operational_modes`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
@@ -167,7 +184,7 @@ CREATE TABLE `operational_modes` (
   KEY `index_operational_modes_on_staff_user_id` (`staff_user_id`),
   KEY `index_operational_modes_on_created_at_and_id` (`created_at`,`id`),
   CONSTRAINT `fk_rails_3b54e44c81` FOREIGN KEY (`staff_user_id`) REFERENCES `staff_users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `schema_migrations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -187,7 +204,7 @@ CREATE TABLE `signed_request_nonces` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `index_signed_request_nonces_on_nonce` (`nonce`),
   KEY `index_signed_request_nonces_on_seen_at` (`seen_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=32 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `staff_users`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -202,7 +219,7 @@ CREATE TABLE `staff_users` (
   `updated_at` datetime(6) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `index_staff_users_on_email` (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=531311759 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -215,6 +232,7 @@ CREATE TABLE `staff_users` (
 /*M!100616 SET NOTE_VERBOSITY=@OLD_NOTE_VERBOSITY */;
 
 INSERT INTO `schema_migrations` (version) VALUES
+('20260930000009'),
 ('20260930000008'),
 ('20260930000007'),
 ('20260930000006'),

@@ -26,7 +26,10 @@ module DatabaseGrants
       # INSERT and nothing else. The trigger refuses UPDATE and DELETE, and
       # this user is not granted them either.
       "audit_logs" => %w[SELECT INSERT],
-      "operational_modes" => %w[SELECT INSERT]
+      "operational_modes" => %w[SELECT INSERT],
+      # No UPDATE. A stored answer is written once, inside the same
+      # transaction as the action it answers.
+      "idempotency_keys" => %w[SELECT INSERT]
     },
     # The handlers own reads. They write nothing.
     handlers: {
