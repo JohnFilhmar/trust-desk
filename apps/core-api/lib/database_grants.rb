@@ -13,13 +13,31 @@ module DatabaseGrants
   # `%w[a b]` is shorthand for ["a", "b"].
   # `.freeze` makes the object read-only, so nothing can add a grant at runtime.
   POLICY = {
+    # Rails owns enforcement writes.
     core_api: {
       "schema_migrations" => %w[SELECT],
       "ar_internal_metadata" => %w[SELECT],
-      "signed_request_nonces" => %w[SELECT INSERT DELETE]
+      "signed_request_nonces" => %w[SELECT INSERT DELETE],
+      "staff_users" => %w[SELECT],
+      # A privilege followed by column names applies to those columns only.
+      # Rails may change an account's status. It may not change its email.
+      "accounts" => [ "SELECT", "UPDATE (status, spam_marked_at, updated_at)" ],
+      "enforcement_actions" => %w[SELECT INSERT],
+      # INSERT and nothing else. The trigger refuses UPDATE and DELETE, and
+      # this user is not granted them either.
+      "audit_logs" => %w[SELECT INSERT],
+      "operational_modes" => %w[SELECT INSERT]
     },
+    # The handlers own reads. They write nothing.
     handlers: {
-      "schema_migrations" => %w[SELECT]
+      "schema_migrations" => %w[SELECT],
+      "staff_users" => %w[SELECT],
+      "accounts" => %w[SELECT],
+      "events" => %w[SELECT],
+      "account_daily_stats" => %w[SELECT],
+      "enforcement_actions" => %w[SELECT],
+      "audit_logs" => %w[SELECT],
+      "operational_modes" => %w[SELECT]
     }
   }.freeze
 
