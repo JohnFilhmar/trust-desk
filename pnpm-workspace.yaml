@@ -3,7 +3,25 @@ packages:
   - "apps/web"
   - "packages/*"
   - "e2e"
+
+# pnpm runs no install script unless the package is named here. All three
+# ship their binary as a prebuilt optional dependency, and the tests pass
+# without the scripts.
 allowBuilds:
   '@parcel/watcher': false
   '@swc/core': false
   unrs-resolver: false
+
+# Two advisories against react-router 6.30.6, excepted by name so that any
+# other advisory still fails the audit. Both are fixed only in react-router
+# 7.18.0, a major version not yet approved for this project.
+#   GHSA-wrjc-x8rr-h8h6  open redirect via a backslash in Link and useNavigate.
+#     Closed in this app by apps/web/src/lib/navigation/readReturnPath.ts,
+#     which allows only this console's own pages.
+#   GHSA-337j-9hxr-rhxg  constructor injection in server-side hydration.
+#     This app has no server-side rendering.
+# Remove both lines when the router is upgraded.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-wrjc-x8rr-h8h6
+    - GHSA-337j-9hxr-rhxg
