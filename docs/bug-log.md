@@ -2,6 +2,40 @@
 
 Every bug found during the build, with the test that now catches it. Newest first.
 
+## 007: the login rate limit refused ordinary use
+
+- **Found:** 2026-09-30, by the edge rehearsal, the first time the browser tests ran through the real host nginx config.
+- **Symptom:** the last test to sign in got "Too many sign-in attempts". 12 tests had passed before it.
+- **Cause:** nginx allowed 10 logins a minute per IP with a burst of 5. The suite signs in 10 times in 30 seconds, from one IP. A recruiter clicking through the three demo users a few times would meet the same wall.
+- **Fix:** 30 a minute with a burst of 10. The guard against guessing passwords was never this limit: the handlers refuse an IP after 10 failed logins in 5 minutes. Checked through the edge: ten wrong passwords got 401, the eleventh got the handlers' 429.
+- **Regression test:** the whole browser suite, run through `docker-compose.edge-test.yml`. It cannot pass while the limit refuses it.
+
+## 006: the Content-Security-Policy reported a violation on every page load
+
+- **Found:** 2026-09-30, by the edge rehearsal, with a test written that day for exactly this: `e2e/tests/console.spec.ts`.
+- **Symptom:** `CSP violation: script-src blocked eval`. The console still worked.
+- **Cause:** zod 4 compiles a fast parser for each object schema with `new Function`, and probes for that the first time an object schema is built. The CSP refuses it. zod catches the refusal and falls back, and the browser logs the violation anyway. zod's own source says so, in `v4/core/util.js`.
+- **Fix:** `z.config({ jitless: true })` in `apps/web/src/lib/zod/configureZod.ts`, imported first in `main.tsx`. First matters: zod reads the setting while a schema is being built, and `@trust-desk/shared` builds its schemas when it is imported.
+- **Regression test:** `e2e/tests/console.spec.ts` fails on any CSP violation or uncaught error. Run it against the live site after every deploy, since only the live site sends the real CSP.
+- **Why nothing caught it before:** the development server sends no CSP. Only host nginx does.
+
+## 005: the nginx config failed on the nginx most servers ship
+
+- **Found:** 2026-09-30, before any deploy, by running `nginx -t` on the host config in nginx 1.24 and 1.29 containers.
+- **Symptom:** `unknown directive "http2" in /etc/nginx/conf.d/default.conf:35`, and `nginx -t` failed the whole file.
+- **Cause:** the config used `http2 on;`, a directive that appeared in nginx 1.25.1. Ubuntu 24.04 ships 1.24.
+- **Who it would have hit:** the deploy itself. The runbook runs `nginx -t` before every reload, so the site would not have gone up, and fusion would have been safe.
+- **Fix:** `listen 443 ssl http2;`, which 1.24 accepts and 1.29 accepts with a deprecation warning.
+- **Regression test:** `docker-compose.edge-test.yml` runs the real config in nginx 1.24 and stops at `nginx -t` if it fails.
+
+## 004: the return path after sign-in could send a visitor to another site
+
+- **Found:** 2026-09-30, Phase 2, while reading `pnpm audit` output about an open redirect in react-router.
+- **Symptom:** none seen. The check refused `//evil.example.org` and let `/\evil.example.org` through, which browsers read as `//evil.example.org`.
+- **Cause:** a pattern of what to refuse. Such a list is only as good as the last trick its author thought of.
+- **Fix:** `apps/web/src/lib/navigation/readReturnPath.ts` allows only this console's own pages: `/accounts`, `/accounts/<digits>` and `/audit`, with a restricted query string.
+- **Regression test:** `apps/web/src/lib/navigation/readReturnPath.test.ts`, 26 cases. Against the old check, 10 of them failed.
+
 ## 003: the production Rails container never started
 
 - **Found:** 2026-09-30, Phase 2, the first time the production images were run, on a development machine and before any deploy.

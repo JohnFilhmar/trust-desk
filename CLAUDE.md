@@ -191,6 +191,7 @@ Each one was hit for real on 2026-09-30. The error text is what the tool printed
 - **`mysql2` hands `SUM()` back as text and `COUNT()` as a number.** Row schemas use `z.coerce.number()` for both.
 - **`crypto.randomUUID` does not exist on a plain HTTP origin.** Browsers expose it only on HTTPS and on localhost. The console showed `crypto.randomUUID is not a function` at `http://web:5173`. Use `createUuid` from `apps/web/src/lib/ids/createUuid.ts`. See bug 002.
 - **An in-memory mount belongs to root.** With a read-only filesystem and a non-root user, Rails failed with `Permission denied @ dir_s_mkdir - /app/tmp/cache`. The `tmpfs` entries in `docker-compose.prod.yml` carry `uid=1001,gid=1001`. See bug 003.
+- **nginx 1.24 refuses `http2 on;`:** `unknown directive "http2"`, and `nginx -t` fails the whole file. The directive appeared in 1.25.1, and Ubuntu 24.04 ships 1.24. The host config uses `listen 443 ssl http2;`, which both accept. Newer nginx prints a deprecation warning for it, which is expected.
 - **Run the production images locally before every deploy.** Both bugs above appear only in the hardened image. `infra/scripts/check_production_images.sh` runs 18 checks against them.
 - **Never build the same image tag from two commands at once.** Docker answered `image "trust-desk-prod-test-handlers:latest": already exists` and the Compose build failed.
 - **Playwright matches a button name as a substring unless told `exact: true`.** "Suspend account" matched "Unsuspend account".
@@ -237,6 +238,7 @@ Verified commands only. Each one below was run on 2026-09-30 and worked. Run the
 | Seed only when empty | runs by itself on `up`, as part of the `migrate` service |
 | Rewrite the signing test vectors | `dc run --rm install node packages/shared/scripts/generate_signing_vectors.mjs` |
 | Reset before and after the end-to-end tests | `dc run --rm migrate bin/rails db:seed` |
+| Rehearse the edge: production images behind the real host nginx, with TLS | the four commands in `docs/deploy-runbook.md`, step 3a |
 | Check the production images | start them as the header of `infra/scripts/check_production_images.sh` says, then `sh infra/scripts/check_production_images.sh` |
 | Deploy | not run yet. Steps in `docs/deploy-runbook.md` |
 

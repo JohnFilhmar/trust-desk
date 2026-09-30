@@ -56,6 +56,9 @@ If the server has less, stop. The options then are a larger instance, swap, or l
 Nothing in this step changes anything.
 
 ```
+uname -m
+grep -E '^(NAME|VERSION)=' /etc/os-release
+docker compose version
 free -m
 swapon --show
 df -h /
@@ -74,6 +77,10 @@ curl -s -o /dev/null -w 'fusion: %{http_code}\n' https://fusion.filhmar.online
 
 Expect:
 
+- `uname -m`: `x86_64` or `aarch64`. **Write it down.** It decides how step 3 builds the images. An image built for one cannot run on the other, and the error on the server is only `exec format error`.
+- `os-release`: the name and version of the Linux. It tells where nginx keeps its site files.
+- `docker compose version`: `Docker Compose version v2.` followed by anything. If the command is not found, or only `docker-compose` with a hyphen works, stop and paste the output. The production file needs Compose v2.
+- `nginx -v`: any version from 1.18 up. The config uses the form of the http2 setting that both old and new nginx accept. On 1.25.1 and later, `nginx -t` prints a deprecation warning about it. That warning is expected and harmless.
 - `free -m`: the `available` column is 1100 or more. Between 500 and 1100, read "What the server needs" above before going on. Below 500, stop.
 - `df -h /`: `Avail` is 6G or more.
 - `ss`: ports 80 and 443 belong to nginx. **Ports 18080 and 18787 do not appear.** If either appears, something already uses it. Pick two free ports, and use them in step 4 and step 6.
@@ -96,9 +103,28 @@ Expect: the instance's public IP. It can take from a minute to an hour. Do not g
 
 ## Step 3: build and push the images (laptop)
 
-CI cannot build them yet, since GitHub Actions is blocked by a billing problem on the account. They are built on your laptop.
+CI runs every test on each push, but it does not build images. They are built on your laptop.
 
-**Check the images on your laptop first.** Two bugs so far existed only in the production images, and both were found this way and not on the server. `infra/scripts/check_production_images.sh` says in its header how to start them, and then runs 18 checks. On 2026-09-30 all 18 passed.
+### 3a. Rehearse the whole edge on the laptop first
+
+Three bugs so far existed only in the production images or in the nginx config, and all three were found on a laptop, not on the server. The rehearsal runs the production images behind the real host nginx config, with TLS, the security headers, the CSP and the rate limits, then runs the browser tests through it.
+
+```
+docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml -f docker-compose.prod-test.yml -f docker-compose.edge-test.yml up --build -d
+docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml -f docker-compose.prod-test.yml -f docker-compose.edge-test.yml run --rm migrate bin/rails db:seed
+docker run --rm --network trust-desk-prod-test_trust_desk_edge -v "${PWD}:/repo" -v trust-desk-dev_node_modules_root:/repo/node_modules -v trust-desk-dev_node_modules_e2e:/repo/e2e/node_modules -w /repo/e2e -e BASE_URL=https://trust.filhmar.online -e IGNORE_HTTPS_ERRORS=1 -e CI=true mcr.microsoft.com/playwright:v1.63.0-noble node_modules/.bin/playwright test
+docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml -f docker-compose.prod-test.yml -f docker-compose.edge-test.yml down -v
+```
+
+The third command borrows the `node_modules` volumes of the development stack, so run `docker compose -f docker-compose.dev.yml up` once before it.
+
+Expect: every browser test passes, the `console.spec.ts` test among them, which fails on any CSP violation.
+
+`infra/scripts/check_production_images.sh` adds 18 checks through the published ports. Run it after the second command, with `ORIGIN=https://trust.filhmar.online` set, since the rehearsal allows only that origin.
+
+### 3b. Build and push
+
+**If step 1 printed `aarch64`,** add `--platform linux/arm64` to each of the four `docker build` lines below. The build then runs under emulation and is several times slower. That path has not been tried on this project.
 
 **Allow time for the build.** The handlers image took 11 minutes 28 seconds to install its packages on the first build, against 18 seconds in development. The cause is not known. Later builds reuse the layer and are fast, as long as the lockfile has not changed.
 
@@ -128,6 +154,8 @@ echo $env:IMAGE_TAG
 ```
 
 Expect: four pushes that end in a `digest: sha256:` line. Write down the tag the last line prints.
+
+The four packages start private on GitHub, even though the repository is public. So the server must log in to pull them, in step 5, with a token that can read packages. To skip that login, set each package to public under GitHub, Your profile, Packages, the package, Package settings.
 
 ## Step 4: files on the server (server)
 
@@ -329,10 +357,12 @@ Expect:
 On your laptop, run the same Playwright test against the live site:
 
 ```
-docker compose -f docker-compose.dev.yml --profile e2e run --rm -e BASE_URL=https://trust.filhmar.online e2e
+docker compose -f docker-compose.dev.yml --profile e2e run --rm --no-deps -e BASE_URL=https://trust.filhmar.online e2e
 ```
 
-Expect: every test passes.
+Expect: every test passes. `console.spec.ts` is the one that matters most here: it is the only check of the real CSP, sent by the real nginx over the real certificate. A blank page or a dialog that will not open shows up there first.
+
+The suite needs freshly seeded data, which step 5 provides. One test puts the console in lockdown and puts it back to normal when it ends, whatever happens.
 
 The smoke test suspends an account. Reset the data afterwards, on the server:
 
