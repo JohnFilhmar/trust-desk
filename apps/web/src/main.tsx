@@ -1,3 +1,5 @@
+// First, before any module that builds a zod schema. See the file for why.
+import "@/lib/zod/configureZod";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "@/App";
