@@ -76,14 +76,22 @@ jobs:
           --health-retries 30
     steps:
       - uses: actions/checkout@v4
-      - name: MySQL client, for db/structure.sql
-        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends default-mysql-client default-libmysqlclient-dev
+      - name: MariaDB client, for db/structure.sql
+        # The same client family the Rails image uses. db/structure.sql is
+        # written by the MariaDB dump tool and starts with a comment that
+        # Oracle's mysql client rejects. The client config turns off
+        # certificate checks, as the image does, since the MySQL service
+        # signs its own certificate.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends mariadb-client default-libmysqlclient-dev
+          printf '[client]\nssl-verify-server-cert = off\n' > ~/.my.cnf
       - name: Database users
         # db/structure.sql names td_admin as the definer of the audit
         # triggers, so that user must exist before the schema is loaded.
         working-directory: .
         run: |
-          mysql --protocol=tcp -h 127.0.0.1 -uroot -pci-only-not-a-secret --ssl-verify-server-cert=off -e "
+          mariadb --protocol=tcp -h 127.0.0.1 -uroot -pci-only-not-a-secret -e "
             CREATE USER IF NOT EXISTS 'td_admin'@'%' IDENTIFIED BY 'ci-only-not-a-secret';
             GRANT ALL PRIVILEGES ON *.* TO 'td_admin'@'%' WITH GRANT OPTION;
             CREATE USER IF NOT EXISTS 'td_core_api'@'%' IDENTIFIED BY 'ci-only-not-a-secret';

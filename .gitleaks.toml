@@ -1,12 +1,23 @@
 # gitleaks reads this file in CI.
-# It keeps every default rule and adds one exception.
+# It keeps every default rule and adds the exceptions below.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Made-up development and CI values. Each one says so in its own text."
+description = "Made-up development and CI values, and the fixed example ids the tests send. Each is listed by value, so a real secret in the same file is still caught."
 regexes = [
+  # Development and CI values. Each one says so in its own text.
   '''dev-only-[a-z0-9-]*not-a-secret[a-z0-9-]*''',
   '''ci-only-not-a-secret''',
+  # Fixed example UUIDs used as correlation ids, nonces and idempotency keys
+  # in tests, fixtures and the production check script. A UUID is an
+  # identifier, not a credential, and these ones are written in the open.
+  '''3f2b6c1e-8d4a-[04]b7e-[9c]c55-0a1b2c3d4e5f''',
+  '''5f0c1b9e-2a3d-4c6f-8e7a-9b0c1d2e3f40''',
+  '''9d8c7b6a-5f4e-4d3c-8b2a-1f0e9d8c7b6a''',
+  '''11111111-2222-4333-8444-555555555555''',
+  '''0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d''',
+  '''7d9f0a52-3c1b-4e8a-9f60-2b4c6d8e0a1c''',
+  '''[01]f8fad5b-d9cb-469f-a165-70867728950e''',
 ]
