@@ -1,0 +1,50 @@
+# Puts the real host nginx config in front of the production images, on a
+# development machine, so the edge is tested before it reaches the server:
+# TLS, the security headers, the Content-Security-Policy, the rate limits
+# and the Secure session cookie.
+#
+#   docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml \
+#     -f docker-compose.prod-test.yml -f docker-compose.edge-test.yml up --build -d
+#
+# The config is infra/nginx/host_trust_desk.conf, with its two upstream
+# addresses swapped for the container names, since 127.0.0.1 inside this
+# container is the container itself. Nothing else is changed.
+#
+# The certificate is self-signed and made when the container starts.
+#
+# nginx 1.24 is what Ubuntu 24.04 ships, the oldest version the config must
+# run on. Other containers on the same network reach this one as
+# https://trust.filhmar.online, the same address the browser uses in
+# production, so the session cookie and the origin check behave the same.
+
+services:
+  handlers:
+    environment:
+      APP_ORIGINS: https://trust.filhmar.online
+
+  edge:
+    image: nginx:1.24-alpine
+    networks:
+      trust_desk_edge:
+        aliases: [trust.filhmar.online]
+    volumes:
+      - ./infra/nginx:/trust_desk_nginx:ro
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        apk add --no-cache openssl >/dev/null
+        mkdir -p /etc/letsencrypt/live/trust.filhmar.online /etc/nginx/snippets /var/www/certbot
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=trust.filhmar.online -keyout /etc/letsencrypt/live/trust.filhmar.online/privkey.pem -out /etc/letsencrypt/live/trust.filhmar.online/fullchain.pem 2>/dev/null
+        cp /trust_desk_nginx/trust_desk_proxy.conf /etc/nginx/snippets/trust_desk_proxy.conf
+        sed -e 's#127.0.0.1:18787#handlers:8787#' -e 's#127.0.0.1:18080#web:8080#' /trust_desk_nginx/host_trust_desk.conf > /etc/nginx/conf.d/default.conf
+        nginx -t
+        exec nginx -g 'daemon off;'
+    depends_on:
+      handlers:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    mem_limit: 64m
+    restart: "no"

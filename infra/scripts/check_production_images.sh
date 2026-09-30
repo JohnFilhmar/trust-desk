@@ -1,14 +1,17 @@
 #!/bin/sh
 # Exercises the PRODUCTION images through the ports they publish.
 #
-# Start the stack first, from the repository root:
-#   docker compose -f docker-compose.prod.yml -f docker-compose.prod-test.yml up --build -d
-#   docker compose -f docker-compose.prod.yml -f docker-compose.prod-test.yml run --rm migrate bin/rails db:seed
-# The Compose command needs every variable of docs/env-reference.md set in
-# the shell, with made-up values, plus IMAGE_PREFIX and IMAGE_TAG.
+# Start the stack first, from the repository root. infra/prod_test.env holds
+# made-up values for every variable the production file needs:
+#   docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml -f docker-compose.prod-test.yml up --build -d
+#   docker compose --env-file infra/prod_test.env -f docker-compose.prod.yml -f docker-compose.prod-test.yml run --rm migrate bin/rails db:seed
 #
 # Then run this file. Every line prints what it got and what to expect.
 # It suspends one account, so seed again afterwards.
+#
+# With docker-compose.edge-test.yml added, the handlers accept only the
+# origin https://trust.filhmar.online. Run this file with that origin then:
+#   ORIGIN=https://trust.filhmar.online sh infra/scripts/check_production_images.sh
 
 API=${API:-http://localhost:18787}
 WEB=${WEB:-http://localhost:18080}

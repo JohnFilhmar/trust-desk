@@ -17,5 +17,8 @@ export default defineConfig({
     baseURL: base_url,
     viewport: { width: 1440, height: 900 },
     trace: "retain-on-failure",
+    // Only for the edge rehearsal, whose certificate is self-signed. Never
+    // set it against the live site, where the certificate must be valid.
+    ignoreHTTPSErrors: process.env["IGNORE_HTTPS_ERRORS"] === "1",
   },
 });
